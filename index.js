@@ -617,6 +617,39 @@ function buildFriendlyApiErrorMessage(rawMessage, response) {
     return `${response.status} ${response.statusText}`.trim();
 }
 
+function buildFriendlyFetchFailureMessage(url, error) {
+    const normalizedUrl = normalizeUrl(url);
+    let resolvedTarget = normalizedUrl;
+    let targetProtocol = '';
+    let targetHost = '';
+
+    try {
+        const parsed = new URL(normalizedUrl, window.location.href);
+        resolvedTarget = parsed.toString();
+        targetProtocol = parsed.protocol;
+        targetHost = parsed.host;
+    } catch {
+        // ignore URL parsing failures and fall back to the raw value
+    }
+
+    const pageProtocol = String(window.location?.protocol || '').toLowerCase();
+    const rawMessage = String(error?.message || '').trim();
+
+    if (pageProtocol === 'https:' && targetProtocol === 'http:') {
+        return `当前酒馆页面使用 HTTPS，但接口地址是 HTTP（${targetHost || resolvedTarget}），浏览器已拦截该请求。请把接口换成 HTTPS，或通过反向代理/酒馆后端中转。`;
+    }
+
+    if (rawMessage && rawMessage !== 'Failed to fetch') {
+        return `无法访问接口：${rawMessage}`;
+    }
+
+    if (resolvedTarget) {
+        return `浏览器无法直接访问接口 ${resolvedTarget}。这通常是混合内容拦截、CORS、证书错误，或目标服务当前不可达导致的。`;
+    }
+
+    return '浏览器无法直接访问该接口，请检查接口地址、协议和网络连通性。';
+}
+
 function isPromptSafetyBlockError(error) {
     return isPromptSafetyBlockMessage(error?.message || error?.rawMessage || '');
 }
@@ -1728,7 +1761,18 @@ function getPromptFromPayload(payload) {
 }
 
 async function fetchJsonOrText(url, options) {
-    const response = await fetch(url, options);
+    let response;
+
+    try {
+        response = await fetch(url, options);
+    } catch (error) {
+        const wrappedError = new Error(buildFriendlyFetchFailureMessage(url, error));
+        wrappedError.cause = error;
+        wrappedError.url = url;
+        wrappedError.isNetworkError = true;
+        throw wrappedError;
+    }
+
     const text = await response.text();
 
     if (!response.ok) {
