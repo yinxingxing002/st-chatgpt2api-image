@@ -13,6 +13,10 @@ import {
 } from '../../../extensions.js';
 import { NOTE_MODULE_NAME } from '../../../authors-note.js';
 import { getGroupCharacterCards } from '../../../group-chats.js';
+import {
+    chat_completion_sources,
+    oai_settings,
+} from '../../../openai.js';
 import { user_avatar } from '../../../personas.js';
 import { loadMovingUIState } from '../../../power-user.js';
 import {
@@ -387,8 +391,84 @@ function shouldUseSillyTavernPromptProxy(settings = ensureSettings()) {
         && isAbsoluteHttpUrl(settings.prompt_api_url);
 }
 
+function isMatchingCurrentTavernCustomSource(settings = ensureSettings()) {
+    const promptApiUrl = normalizeUrl(settings.prompt_api_url);
+    const tavernCustomUrl = normalizeUrl(oai_settings?.custom_url);
+
+    return Boolean(
+        promptApiUrl
+        && tavernCustomUrl
+        && promptApiUrl === tavernCustomUrl
+        && String(oai_settings?.chat_completion_source || '') === chat_completion_sources.CUSTOM,
+    );
+}
+
+function buildPromptApiCustomAuthorizationValue(settings = ensureSettings()) {
+    const apiKey = String(settings.prompt_api_key || '').trim();
+    if (!apiKey) {
+        return '';
+    }
+
+    return /^Bearer\s+/i.test(apiKey) ? apiKey : `Bearer ${apiKey}`;
+}
+
+function getPromptApiCustomIncludeHeaders(settings = ensureSettings()) {
+    const authorization = buildPromptApiCustomAuthorizationValue(settings);
+    const existingHeaders = oai_settings?.custom_include_headers;
+
+    if (!authorization) {
+        return existingHeaders || '';
+    }
+
+    if (existingHeaders && typeof existingHeaders === 'object' && !Array.isArray(existingHeaders)) {
+        return {
+            ...existingHeaders,
+            Authorization: authorization,
+        };
+    }
+
+    if (typeof existingHeaders === 'string' && existingHeaders.trim()) {
+        const parsedHeaders = tryParseJson(existingHeaders);
+        if (parsedHeaders && typeof parsedHeaders === 'object' && !Array.isArray(parsedHeaders)) {
+            return {
+                ...parsedHeaders,
+                Authorization: authorization,
+            };
+        }
+
+        return `${existingHeaders.trim()}\nAuthorization: ${authorization}`;
+    }
+
+    return {
+        Authorization: authorization,
+    };
+}
+
+function buildSillyTavernPromptProxyRequest(settings = ensureSettings(), extraBody = {}) {
+    if (isMatchingCurrentTavernCustomSource(settings)) {
+        return {
+            chat_completion_source: chat_completion_sources.CUSTOM,
+            custom_url: normalizeUrl(settings.prompt_api_url),
+            custom_include_headers: getPromptApiCustomIncludeHeaders(settings),
+            custom_prompt_post_processing: oai_settings?.custom_prompt_post_processing || '',
+            ...extraBody,
+        };
+    }
+
+    return {
+        chat_completion_source: chat_completion_sources.OPENAI,
+        reverse_proxy: normalizeUrl(settings.prompt_api_url),
+        proxy_password: String(settings.prompt_api_key || '').trim(),
+        ...extraBody,
+    };
+}
+
 function getConnectionModeHint(settings = ensureSettings()) {
     if (isTavernConnectionMode(settings)) {
+        if (isMatchingCurrentTavernCustomSource(settings)) {
+            return '酒馆模式下，当前提示词接口地址与酒馆主 API 的自定义兼容 OpenAI 配置一致。扩展会直接复用酒馆当前这条 custom 连接链去拉模型和生成提示词。';
+        }
+
         return '酒馆模式下，提示词接口会优先借助 SillyTavern 后端代理；如果你填的是同源相对路径，则会直接走当前酒馆域名。生图接口建议优先填写同源代理路径，例如 /api/chatgpt2api/v1 或 /api/v1。';
     }
 
@@ -1984,15 +2064,12 @@ async function requestPromptApiChatCompletionViaSillyTavern(settings, messages, 
     return await fetchJsonOrText('/api/backends/chat-completions/generate', {
         method: 'POST',
         headers: getRequestHeaders(),
-        body: JSON.stringify({
+        body: JSON.stringify(buildSillyTavernPromptProxyRequest(settings, {
             stream: false,
-            chat_completion_source: 'openai',
-            reverse_proxy: normalizeUrl(settings.prompt_api_url),
-            proxy_password: String(settings.prompt_api_key || '').trim(),
             model,
             messages,
             temperature,
-        }),
+        })),
     });
 }
 
@@ -2000,11 +2077,7 @@ async function requestPromptApiModelsViaSillyTavern(settings) {
     return await fetchJsonOrText('/api/backends/chat-completions/status', {
         method: 'POST',
         headers: getRequestHeaders(),
-        body: JSON.stringify({
-            chat_completion_source: 'openai',
-            reverse_proxy: normalizeUrl(settings.prompt_api_url),
-            proxy_password: String(settings.prompt_api_key || '').trim(),
-        }),
+        body: JSON.stringify(buildSillyTavernPromptProxyRequest(settings)),
     });
 }
 
@@ -4108,6 +4181,7 @@ async function addSettingsUi() {
 
     $(document).on('change', '#st_chatgpt2api_image_prompt_api_mode', function () {
         ensureSettings().prompt_api_mode = String($(this).val() || 'openai');
+        updateConnectionModeUi();
         saveSettingsDebounced();
     });
 
@@ -4131,6 +4205,10 @@ async function addSettingsUi() {
     bindSettingInput('#st_chatgpt2api_image_model', 'image_model', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_nsfw_terms', 'nsfw_terms', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_nsfw_rewrite_hint', 'nsfw_rewrite_hint', value => String(value || ''));
+
+    $(document).on('input change', '#st_chatgpt2api_image_prompt_api_url, #st_chatgpt2api_image_prompt_api_key', function () {
+        updateConnectionModeUi();
+    });
 
     $(document).on('input change', '#st_chatgpt2api_image_prompt_api_model', function () {
         ensureSettings().prompt_api_model = String($(this).val() || '');
