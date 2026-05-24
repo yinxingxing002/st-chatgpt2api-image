@@ -3132,7 +3132,7 @@ function getInlineButtonAnchor(messageElement, messageId, message) {
 
     const candidates = getInlinePlacementCandidates(textContainer);
 
-    if (candidates.length < 2) {
+    if (!candidates.length) {
         return null;
     }
 
@@ -3141,6 +3141,13 @@ function getInlineButtonAnchor(messageElement, messageId, message) {
         return {
             anchor: candidates.eq(storedIndex),
             index: storedIndex,
+        };
+    }
+
+    if (candidates.length === 1) {
+        return {
+            anchor: candidates.eq(0),
+            index: 0,
         };
     }
 
@@ -3315,11 +3322,14 @@ function applyInlineMediaPlacement(messageId) {
         return;
     }
 
-    const imageContainer = messageElement.find('.mes_img_container').first();
+    const imageContainers = messageElement.find('.mes_img_container');
     const textContainer = messageElement.find('.mes_text').first();
-    if (!imageContainer.length || !textContainer.length) {
+    if (!imageContainers.length || !textContainer.length) {
         return;
     }
+
+    const imageContainer = imageContainers.last();
+    imageContainers.not(imageContainer).remove();
 
     const inlineSlot = getExistingInlineSlot(textContainer, normalizedId);
     const inlineMediaSlot = inlineSlot.find(MESSAGE_INLINE_SLOT_MEDIA_SELECTOR).first();
