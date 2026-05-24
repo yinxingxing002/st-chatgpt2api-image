@@ -40,6 +40,7 @@ const MESSAGE_INLINE_SLOT_SELECTOR = '.st-chatgpt2api-image-inline-slot';
 const MESSAGE_INLINE_SLOT_ACTIONS_SELECTOR = '.st-chatgpt2api-image-inline-slot-actions';
 const MESSAGE_INLINE_SLOT_MEDIA_SELECTOR = '.st-chatgpt2api-image-inline-slot-media';
 const MEDIA_REFRESH_RETRY_DELAYS = [0, 80, 220, 500, 1200, 2400];
+const DEFAULT_TAVERN_IMAGE_PROXY_BASE = '/api/chatgpt2api';
 const TOAST_TITLE = 'ChatGPT2API 生图';
 const STATUS_TITLES = {
     info: '准备就绪',
@@ -776,6 +777,10 @@ function buildFriendlyFetchFailureMessage(url, error) {
     const rawMessage = String(error?.message || '').trim();
 
     if (pageProtocol === 'https:' && targetProtocol === 'http:') {
+        if (isTavernConnectionMode()) {
+            return `当前酒馆页面使用 HTTPS，但接口地址是 HTTP（${targetHost || resolvedTarget}），浏览器已拦截该请求。请改用同源代理路径，例如 ${DEFAULT_TAVERN_IMAGE_PROXY_BASE} 或其他站内反向代理路径。`;
+        }
+
         return `当前酒馆页面使用 HTTPS，但接口地址是 HTTP（${targetHost || resolvedTarget}），浏览器已拦截该请求。请把接口换成 HTTPS，或通过反向代理/酒馆后端中转。`;
     }
 
@@ -788,6 +793,31 @@ function buildFriendlyFetchFailureMessage(url, error) {
     }
 
     return '浏览器无法直接访问该接口，请检查接口地址、协议和网络连通性。';
+}
+
+function shouldPreferTavernImageProxy(settings = ensureSettings()) {
+    return isTavernConnectionMode(settings)
+        && String(window.location?.protocol || '').toLowerCase() === 'https:'
+        && isAbsoluteHttpUrl(settings.image_api_url);
+}
+
+function getImageApiBaseCandidates(settings = ensureSettings()) {
+    const candidates = [];
+
+    if (shouldPreferTavernImageProxy(settings)) {
+        candidates.push(DEFAULT_TAVERN_IMAGE_PROXY_BASE);
+    }
+
+    candidates.push(settings.image_api_url);
+    return uniqueStrings(candidates.map(item => normalizeUrl(item)).filter(Boolean));
+}
+
+function getImageApiEndpointCandidates(settings = ensureSettings(), endpointPath = '/images/generations') {
+    return uniqueStrings(
+        getImageApiBaseCandidates(settings)
+            .map(baseUrl => buildOpenAiCompatibleEndpointUrl(baseUrl, endpointPath))
+            .filter(Boolean),
+    );
 }
 
 function isPromptSafetyBlockError(error) {
@@ -1462,6 +1492,34 @@ async function loadWorldBookSourceBlocks(bookNames, context = getContext(), { ma
     return blocks;
 }
 
+async function preloadWorldBooks(bookNames, context = getContext()) {
+    for (const bookName of uniqueStrings(bookNames)) {
+        try {
+            await context.loadWorldInfo(bookName);
+        } catch (error) {
+            console.warn('Failed to preload world lorebook for descriptor extraction', bookName, error);
+        }
+    }
+}
+
+async function withTemporarySelectedWorldInfo(bookNames, fn) {
+    const relevantNames = uniqueStrings(bookNames);
+    const originalSelected = Array.isArray(selected_world_info) ? [...selected_world_info] : [];
+
+    if (!Array.isArray(selected_world_info) || !relevantNames.length) {
+        return await fn();
+    }
+
+    const mergedNames = uniqueStrings([...originalSelected, ...relevantNames]);
+    selected_world_info.splice(0, selected_world_info.length, ...mergedNames);
+
+    try {
+        return await fn();
+    } finally {
+        selected_world_info.splice(0, selected_world_info.length, ...originalSelected);
+    }
+}
+
 function buildWorldInfoScanMessages(context = getContext()) {
     const chatMessages = Array.isArray(context.chat) ? context.chat : [];
 
@@ -1535,7 +1593,7 @@ function restoreExtensionPromptSnapshot(context, key, snapshot) {
     );
 }
 
-async function getActivatedWorldInfoEntries(cardContext, personaContext, context = getContext()) {
+async function getActivatedWorldInfoEntries(cardContext, personaContext, context = getContext(), { relevantWorldNames = [] } = {}) {
     const scanMessages = buildWorldInfoScanMessages(context);
     if (!scanMessages.length) {
         return [];
@@ -1546,12 +1604,13 @@ async function getActivatedWorldInfoEntries(cardContext, personaContext, context
         : null;
 
     try {
-        const result = await checkWorldInfo(
+        await preloadWorldBooks(relevantWorldNames, context);
+        const result = await withTemporarySelectedWorldInfo(relevantWorldNames, async () => await checkWorldInfo(
             scanMessages,
             Number(context.maxContext) || 4096,
             true,
             buildWorldInfoGlobalScanData(cardContext, personaContext),
-        );
+        ));
 
         return getCollectionValues(result?.allActivatedEntries).filter(Boolean);
     } catch (error) {
@@ -1569,7 +1628,7 @@ async function buildActivatedLoreSourceBlock({
     context = getContext(),
     preferredLabel = '',
 } = {}) {
-    const activatedEntries = await getActivatedWorldInfoEntries(cardContext, personaContext, context);
+    const activatedEntries = await getActivatedWorldInfoEntries(cardContext, personaContext, context, { relevantWorldNames });
     if (!activatedEntries.length) {
         return '';
     }
@@ -2495,9 +2554,9 @@ async function buildPromptWithCustomApiEnhanced(settings, promptContext) {
 
 async function requestImage(prompt) {
     const settings = ensureSettings();
-    const generationsUrl = buildOpenAiCompatibleEndpointUrl(settings.image_api_url, '/images/generations');
+    const generationUrls = getImageApiEndpointCandidates(settings, '/images/generations');
 
-    if (!generationsUrl) {
+    if (!generationUrls.length) {
         throw new Error('生图接口地址不能为空。');
     }
 
@@ -2516,19 +2575,29 @@ async function requestImage(prompt) {
         response_format: 'b64_json',
     };
 
-    const result = await fetchJsonOrText(generationsUrl, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(payload),
-    });
+    let lastError = null;
 
-    const base64Data = result?.data?.[0]?.b64_json;
+    for (const generationsUrl of generationUrls) {
+        try {
+            const result = await fetchJsonOrText(generationsUrl, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(payload),
+            });
 
-    if (!base64Data) {
-        throw new Error('生图接口没有返回可用的图片数据。');
+            const base64Data = result?.data?.[0]?.b64_json;
+
+            if (!base64Data) {
+                throw new Error('生图接口没有返回可用的图片数据。');
+            }
+
+            return base64Data;
+        } catch (error) {
+            lastError = error;
+        }
     }
 
-    return base64Data;
+    throw lastError || new Error('生图接口没有返回可用的图片数据。');
 }
 
 function buildImageRetryPrompt(prompt, settings = ensureSettings()) {
@@ -4086,9 +4155,9 @@ function onClearPersonaLibraryClick() {
 
 async function onTestApiClick() {
     const settings = ensureSettings();
-    const modelsUrl = buildOpenAiCompatibleEndpointUrl(settings.image_api_url, '/models');
+    const modelUrls = getImageApiEndpointCandidates(settings, '/models');
 
-    if (!modelsUrl) {
+    if (!modelUrls.length) {
         setStatus('请先填写生图接口地址。', 'error');
         return;
     }
@@ -4101,10 +4170,24 @@ async function onTestApiClick() {
             headers.Authorization = `Bearer ${settings.image_api_key.trim()}`;
         }
 
-        const result = await fetchJsonOrText(modelsUrl, {
-            method: 'GET',
-            headers,
-        });
+        let result = null;
+        let lastError = null;
+
+        for (const modelsUrl of modelUrls) {
+            try {
+                result = await fetchJsonOrText(modelsUrl, {
+                    method: 'GET',
+                    headers,
+                });
+                break;
+            } catch (error) {
+                lastError = error;
+            }
+        }
+
+        if (!result) {
+            throw lastError || new Error('生图接口连接失败。');
+        }
 
         const models = Array.isArray(result?.data) ? result.data.map(item => item?.id).filter(Boolean) : [];
         const preview = models.slice(0, 6).join(', ');
