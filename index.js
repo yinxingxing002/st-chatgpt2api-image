@@ -2,6 +2,7 @@
     appendMediaToMessage,
     eventSource,
     event_types,
+    getRequestHeaders,
     saveSettingsDebounced,
     updateMessageBlock,
 } from '../../../../script.js';
@@ -161,6 +162,7 @@ const PERSONA_DESCRIPTOR_RUNTIME_SCAFFOLD = [
 
 const defaultSettings = {
     enabled: true,
+    connection_mode: 'browser',
     prompt_api_mode: 'openai',
     prompt_api_enabled: true,
     prompt_api_url: '',
@@ -337,6 +339,64 @@ function setBusyPhase(phase, statusText = '', statusTitle = '') {
 
 function normalizeUrl(url) {
     return String(url || '').trim().replace(/\/+$/, '');
+}
+
+function isAbsoluteHttpUrl(url) {
+    const normalized = normalizeUrl(url);
+
+    if (!normalized || normalized.startsWith('/')) {
+        return false;
+    }
+
+    try {
+        const parsed = new URL(normalized, window.location.href);
+        return ['http:', 'https:'].includes(parsed.protocol);
+    } catch {
+        return false;
+    }
+}
+
+function buildOpenAiCompatibleEndpointUrl(baseUrl, endpointPath) {
+    const normalizedBaseUrl = normalizeUrl(baseUrl);
+    const normalizedEndpointPath = String(endpointPath || '').startsWith('/')
+        ? String(endpointPath || '')
+        : `/${String(endpointPath || '')}`;
+
+    if (!normalizedBaseUrl) {
+        return '';
+    }
+
+    if (normalizedBaseUrl.toLowerCase().endsWith(normalizedEndpointPath.toLowerCase())) {
+        return normalizedBaseUrl;
+    }
+
+    if (/\/v\d+(?:beta\d+)?$/i.test(normalizedBaseUrl)) {
+        return `${normalizedBaseUrl}${normalizedEndpointPath}`;
+    }
+
+    return `${normalizedBaseUrl}/v1${normalizedEndpointPath}`;
+}
+
+function isTavernConnectionMode(settings = ensureSettings()) {
+    return String(settings.connection_mode || 'browser') === 'tavern';
+}
+
+function shouldUseSillyTavernPromptProxy(settings = ensureSettings()) {
+    return isTavernConnectionMode(settings)
+        && String(settings.prompt_api_mode || 'openai') === 'openai'
+        && isAbsoluteHttpUrl(settings.prompt_api_url);
+}
+
+function getConnectionModeHint(settings = ensureSettings()) {
+    if (isTavernConnectionMode(settings)) {
+        return '酒馆模式下，提示词接口会优先借助 SillyTavern 后端代理；如果你填的是同源相对路径，则会直接走当前酒馆域名。生图接口建议优先填写同源代理路径，例如 /api/chatgpt2api/v1 或 /api/v1。';
+    }
+
+    return '浏览器模式会在前端直接请求你填写的接口地址。目标接口需要允许当前页面访问，并且在 HTTPS 酒馆里应优先使用 HTTPS 接口。';
+}
+
+function updateConnectionModeUi(settings = ensureSettings()) {
+    $('#st_chatgpt2api_image_connection_mode_hint').text(getConnectionModeHint(settings));
 }
 
 function normalizeMessageId(messageId) {
@@ -1814,13 +1874,7 @@ async function buildPromptLegacy(sourceMessage) {
 }
 
 function getPromptApiChatCompletionsUrl(settings) {
-    const baseUrl = normalizeUrl(settings.prompt_api_url);
-
-    if (baseUrl.endsWith('/chat/completions')) {
-        return baseUrl;
-    }
-
-    return `${baseUrl}/chat/completions`;
+    return buildOpenAiCompatibleEndpointUrl(settings.prompt_api_url, '/chat/completions');
 }
 
 async function buildPromptWithOpenAiCompatibleApi(settings, latestMessageText, sourceMessage) {
@@ -1905,13 +1959,7 @@ async function buildPromptWithCustomApi(settings, latestMessageText, sourceMessa
 }
 
 function getPromptApiModelsUrl(settings) {
-    const baseUrl = normalizeUrl(settings.prompt_api_url);
-
-    if (baseUrl.endsWith('/models')) {
-        return baseUrl;
-    }
-
-    return `${baseUrl}/models`;
+    return buildOpenAiCompatibleEndpointUrl(settings.prompt_api_url, '/models');
 }
 
 function getPromptApiHeaders(settings, { includeContentType = true } = {}) {
@@ -1924,6 +1972,40 @@ function getPromptApiHeaders(settings, { includeContentType = true } = {}) {
     }
 
     return headers;
+}
+
+async function requestPromptApiChatCompletionViaSillyTavern(settings, messages, { temperature = 0.4 } = {}) {
+    const model = String(settings.prompt_api_model || '').trim();
+
+    if (!model) {
+        throw new Error('提示词模型不能为空。');
+    }
+
+    return await fetchJsonOrText('/api/backends/chat-completions/generate', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({
+            stream: false,
+            chat_completion_source: 'openai',
+            reverse_proxy: normalizeUrl(settings.prompt_api_url),
+            proxy_password: String(settings.prompt_api_key || '').trim(),
+            model,
+            messages,
+            temperature,
+        }),
+    });
+}
+
+async function requestPromptApiModelsViaSillyTavern(settings) {
+    return await fetchJsonOrText('/api/backends/chat-completions/status', {
+        method: 'POST',
+        headers: getRequestHeaders(),
+        body: JSON.stringify({
+            chat_completion_source: 'openai',
+            reverse_proxy: normalizeUrl(settings.prompt_api_url),
+            proxy_password: String(settings.prompt_api_key || '').trim(),
+        }),
+    });
 }
 
 function getCardLibraryEntries(cardContext) {
@@ -2180,6 +2262,10 @@ async function requestPromptApiChatCompletion(settings, messages, { temperature 
         throw new Error('提示词模型不能为空。');
     }
 
+    if (shouldUseSillyTavernPromptProxy(settings)) {
+        return await requestPromptApiChatCompletionViaSillyTavern(settings, messages, { temperature });
+    }
+
     return await fetchJsonOrText(getPromptApiChatCompletionsUrl(settings), {
         method: 'POST',
         headers: getPromptApiHeaders(settings),
@@ -2298,9 +2384,9 @@ async function buildPromptWithCustomApiEnhanced(settings, promptContext) {
 
 async function requestImage(prompt) {
     const settings = ensureSettings();
-    const baseUrl = normalizeUrl(settings.image_api_url);
+    const generationsUrl = buildOpenAiCompatibleEndpointUrl(settings.image_api_url, '/images/generations');
 
-    if (!baseUrl) {
+    if (!generationsUrl) {
         throw new Error('生图接口地址不能为空。');
     }
 
@@ -2319,7 +2405,7 @@ async function requestImage(prompt) {
         response_format: 'b64_json',
     };
 
-    const result = await fetchJsonOrText(`${baseUrl}/v1/images/generations`, {
+    const result = await fetchJsonOrText(generationsUrl, {
         method: 'POST',
         headers,
         body: JSON.stringify(payload),
@@ -3489,10 +3575,12 @@ async function fetchPromptApiModels() {
     const settings = ensureSettings();
     ensurePromptApiConfigured(settings);
 
-    const result = await fetchJsonOrText(getPromptApiModelsUrl(settings), {
-        method: 'GET',
-        headers: getPromptApiHeaders(settings, { includeContentType: false }),
-    });
+    const result = shouldUseSillyTavernPromptProxy(settings)
+        ? await requestPromptApiModelsViaSillyTavern(settings)
+        : await fetchJsonOrText(getPromptApiModelsUrl(settings), {
+            method: 'GET',
+            headers: getPromptApiHeaders(settings, { includeContentType: false }),
+        });
 
     const models = uniqueStrings(
         Array.isArray(result?.data)
@@ -3791,9 +3879,9 @@ function onClearPersonaLibraryClick() {
 
 async function onTestApiClick() {
     const settings = ensureSettings();
-    const baseUrl = normalizeUrl(settings.image_api_url);
+    const modelsUrl = buildOpenAiCompatibleEndpointUrl(settings.image_api_url, '/models');
 
-    if (!baseUrl) {
+    if (!modelsUrl) {
         setStatus('请先填写生图接口地址。', 'error');
         return;
     }
@@ -3806,7 +3894,7 @@ async function onTestApiClick() {
             headers.Authorization = `Bearer ${settings.image_api_key.trim()}`;
         }
 
-        const result = await fetchJsonOrText(`${baseUrl}/v1/models`, {
+        const result = await fetchJsonOrText(modelsUrl, {
             method: 'GET',
             headers,
         });
@@ -3835,6 +3923,7 @@ function loadSettingsIntoUi() {
     const settings = ensureSettings();
 
     $('#st_chatgpt2api_image_enabled').prop('checked', settings.enabled !== false);
+    $('#st_chatgpt2api_image_connection_mode').val(settings.connection_mode || 'browser');
     $('#st_chatgpt2api_image_prompt_api_enabled').prop('checked', settings.prompt_api_enabled);
     $('#st_chatgpt2api_image_prompt_api_mode').val(settings.prompt_api_mode);
     $('#st_chatgpt2api_image_prompt_api_url').val(settings.prompt_api_url);
@@ -3850,6 +3939,7 @@ function loadSettingsIntoUi() {
     $('#st_chatgpt2api_image_nsfw_terms').val(settings.nsfw_terms);
     $('#st_chatgpt2api_image_nsfw_rewrite_hint').val(settings.nsfw_rewrite_hint);
     $('#st_chatgpt2api_image_debug').prop('checked', settings.debug);
+    updateConnectionModeUi(settings);
     refreshDescriptorLibraryUi();
 }
 
@@ -3874,6 +3964,12 @@ async function addSettingsUi() {
         ensureSettings().enabled = !!$(this).prop('checked');
         saveSettingsDebounced();
         applyInlineButtonEnabledState(ensureSettings().enabled);
+    });
+
+    $(document).on('change', '#st_chatgpt2api_image_connection_mode', function () {
+        ensureSettings().connection_mode = String($(this).val() || 'browser');
+        updateConnectionModeUi();
+        saveSettingsDebounced();
     });
 
     $(document).on('change', '#st_chatgpt2api_image_prompt_api_mode', function () {
