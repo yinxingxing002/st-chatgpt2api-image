@@ -1,0 +1,119 @@
+<div id="st_chatgpt2api_image_panel" class="st-chatgpt2api-image-panel">
+    <div class="panelControlBar flex-container alignitemscenter justifySpaceBetween">
+        <div class="flex-container alignitemscenter gap8px">
+            <div class="st-chatgpt2api-image-panel-heading">
+                <div class="st-chatgpt2api-image-panel-eyebrow">ChatGPT2API 生图</div>
+                <div class="st-chatgpt2api-image-panel-title-row">
+                    <div class="st-chatgpt2api-image-panel-title">灵感配图</div>
+                    <div id="st_chatgpt2api_image_panel_busy_chip" class="st-chatgpt2api-image-busy-chip">
+                        <span class="st-chatgpt2api-image-busy-chip-dots" aria-hidden="true">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </span>
+                        <span id="st_chatgpt2api_image_panel_busy_label" class="st-chatgpt2api-image-busy-chip-text">待命中</span>
+                    </div>
+                </div>
+                <small id="st_chatgpt2api_image_panel_source_label" class="st-chatgpt2api-image-panel-subtitle">
+                    选择一条 AI 回复后开始。
+                </small>
+            </div>
+        </div>
+        <div class="flex-container alignitemscenter gap5px">
+            <div id="st_chatgpt2api_image_panel_open_control" class="st-chatgpt2api-image-panel-control" title="打开控制台">
+                <i class="fa-fw fa-solid fa-sliders"></i>
+            </div>
+            <div id="st_chatgpt2api_image_panel_maximize" class="st-chatgpt2api-image-panel-control" title="最大化">
+                <i class="floating_panel_maximize fa-fw fa-solid fa-window-maximize"></i>
+            </div>
+            <div id="st_chatgpt2api_image_panel_close" class="fa-fw fa-solid fa-circle-xmark floating_panel_close" title="关闭"></div>
+        </div>
+    </div>
+
+    <div class="st-chatgpt2api-image-panel-body scrollableInnerFull">
+        <div class="st-chatgpt2api-image-panel-section">
+            <div class="st-chatgpt2api-image-panel-section-header flex-container justifySpaceBetween alignitemscenter">
+                <span>来源楼层</span>
+                <small id="st_chatgpt2api_image_panel_source_meta"></small>
+            </div>
+            <div id="st_chatgpt2api_image_panel_source_text" class="st-chatgpt2api-image-source-preview">
+                点击任意一条助手消息里的生图按钮，就会把正文带到这里。
+            </div>
+        </div>
+
+        <div class="st-chatgpt2api-image-panel-section">
+            <div class="st-chatgpt2api-image-panel-section-header">
+                <span>画面提示词</span>
+            </div>
+            <small class="st-chatgpt2api-image-help">这里会显示生成后的提示词。你可以直接修改它，再点“按当前提示词生图”。</small>
+            <textarea
+                id="st_chatgpt2api_image_panel_prompt"
+                class="text_pole wide100p"
+                rows="8"
+                placeholder="这里会出现生成后的提示词。你也可以先手动润色，再继续生图。"
+                spellcheck="false"
+            ></textarea>
+        </div>
+
+        <div class="st-chatgpt2api-image-panel-actions flex-container gap5px flexWrap">
+            <div id="st_chatgpt2api_image_panel_generate_all" class="menu_button menu_button_icon st-chatgpt2api-image-panel-action">
+                <span class="st-chatgpt2api-image-panel-action-icon">
+                    <i class="fa-solid fa-wand-magic-sparkles"></i>
+                </span>
+                <span class="st-chatgpt2api-image-panel-action-copy">
+                    <span class="st-chatgpt2api-image-panel-action-label">一键生图</span>
+                    <small>提示词和图片一次完成</small>
+                </span>
+            </div>
+            <div id="st_chatgpt2api_image_panel_generate_prompt" class="menu_button menu_button_icon st-chatgpt2api-image-panel-action">
+                <span class="st-chatgpt2api-image-panel-action-icon">
+                    <i class="fa-solid fa-pen-ruler"></i>
+                </span>
+                <span class="st-chatgpt2api-image-panel-action-copy">
+                    <span class="st-chatgpt2api-image-panel-action-label">生成提示词</span>
+                    <small>先提炼画面，再细调</small>
+                </span>
+            </div>
+            <div id="st_chatgpt2api_image_panel_generate_image" class="menu_button menu_button_icon st-chatgpt2api-image-panel-action">
+                <span class="st-chatgpt2api-image-panel-action-icon">
+                    <i class="fa-solid fa-image"></i>
+                </span>
+                <span class="st-chatgpt2api-image-panel-action-copy">
+                    <span class="st-chatgpt2api-image-panel-action-label">按当前提示词生图</span>
+                    <small>直接发送到图像接口</small>
+                </span>
+            </div>
+        </div>
+
+        <div id="st_chatgpt2api_image_panel_status" class="st-chatgpt2api-image-status" data-status-type="info">
+            <div class="st-chatgpt2api-image-status-indicator" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <div class="st-chatgpt2api-image-status-copy">
+                <div id="st_chatgpt2api_image_panel_status_title" class="st-chatgpt2api-image-status-title">准备就绪</div>
+                <div id="st_chatgpt2api_image_panel_status_text" class="st-chatgpt2api-image-status-text">选中一条消息后即可开始。</div>
+            </div>
+        </div>
+
+        <div class="st-chatgpt2api-image-panel-section">
+            <div class="st-chatgpt2api-image-panel-section-header">
+                <span>最新图片</span>
+            </div>
+            <div class="st-chatgpt2api-image-preview-shell">
+                <div id="st_chatgpt2api_image_panel_preview_loading" class="st-chatgpt2api-image-preview-loading displayNone">
+                    <div class="st-chatgpt2api-image-preview-spinner" aria-hidden="true"></div>
+                    <div id="st_chatgpt2api_image_panel_preview_loading_label" class="st-chatgpt2api-image-preview-loading-label">生图中</div>
+                    <div id="st_chatgpt2api_image_panel_preview_loading_hint" class="st-chatgpt2api-image-preview-loading-hint">图像服务已经开始处理，请稍等片刻。</div>
+                </div>
+                <div id="st_chatgpt2api_image_panel_preview_empty" class="st-chatgpt2api-image-preview-empty">
+                    <i class="fa-solid fa-image" aria-hidden="true"></i>
+                    <span>还没有生成图片</span>
+                    <small>图片生成后会直接挂回当前这条 AI 消息里。</small>
+                </div>
+                <img id="st_chatgpt2api_image_panel_preview" class="st-chatgpt2api-image-preview displayNone" src="" alt="" />
+            </div>
+        </div>
+    </div>
+</div>

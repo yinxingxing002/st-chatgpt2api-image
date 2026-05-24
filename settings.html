@@ -1,0 +1,289 @@
+<div id="st_chatgpt2api_image_settings" class="st-chatgpt2api-image-settings">
+    <div class="st-chatgpt2api-image-launcher-card">
+        <div class="st-chatgpt2api-image-launcher-copy">
+            <div class="st-chatgpt2api-image-launcher-title">ChatGPT2API 生图</div>
+            <small class="st-chatgpt2api-image-help">
+                设置区已经升级为悬浮控制台。你可以从这里快速打开，也可以从生图面板右上角直接进入。
+            </small>
+        </div>
+        <div id="st_chatgpt2api_image_open_control_panel" class="menu_button menu_button_icon">
+            <i class="fa-solid fa-sliders"></i>
+            <span>打开悬浮控制台</span>
+        </div>
+    </div>
+
+    <div id="st_chatgpt2api_image_settings_content" class="st-chatgpt2api-image-settings-content displayNone">
+        <div class="st-chatgpt2api-image-card m-t-1">
+            <div class="st-chatgpt2api-image-card-title">功能开关</div>
+            <label class="checkbox_label widthFreeExpand">
+                <input id="st_chatgpt2api_image_enabled" type="checkbox" />
+                <span>显示消息内生图按钮</span>
+            </label>
+            <small class="st-chatgpt2api-image-help">
+                关闭后，聊天楼层里的“生图”按钮会隐藏，但悬浮控制台仍然保留，方便你随时重新开启。
+            </small>
+        </div>
+
+        <div class="m-t-1">
+            <h4>提示词接口模式</h4>
+            <select id="st_chatgpt2api_image_prompt_api_mode" class="text_pole wide100p">
+                <option value="openai">OpenAI 兼容聊天补全</option>
+                <option value="custom">自定义 JSON 提示词接口</option>
+            </select>
+        </div>
+
+        <div class="flex-container flexFlowColumn gap5px">
+            <label class="checkbox_label widthFreeExpand">
+                <input id="st_chatgpt2api_image_prompt_api_enabled" type="checkbox" />
+                <span>启用提示词接口</span>
+            </label>
+            <small class="st-chatgpt2api-image-help">
+                如果关闭提示词接口，扩展会直接把选中的 AI 消息正文当作生图提示词使用。
+            </small>
+        </div>
+
+        <div class="m-t-1">
+            <h4>提示词接口地址</h4>
+            <input id="st_chatgpt2api_image_prompt_api_url" class="text_pole wide100p" type="text" placeholder="https://your-api.example.com/v1" />
+        </div>
+
+        <div class="m-t-1">
+            <h4>提示词接口密钥</h4>
+            <input id="st_chatgpt2api_image_prompt_api_key" class="text_pole wide100p" type="password" placeholder="可选" autocomplete="off" />
+        </div>
+
+        <div class="m-t-1">
+            <h4>提示词模型</h4>
+            <input id="st_chatgpt2api_image_prompt_api_model" class="text_pole wide100p" type="text" placeholder="gcli-gemini-3-flash-preview" />
+        </div>
+
+        <div class="st-chatgpt2api-image-card m-t-1">
+            <div class="st-chatgpt2api-image-card-title">提词助手设定</div>
+            <small class="st-chatgpt2api-image-help">
+                这里会原样发给提词模型作为系统提示词。你可以直接修改它，让提词助手更贴合你的风格和尺度。
+            </small>
+            <div class="m-t-1">
+                <textarea
+                    id="st_chatgpt2api_image_prompt_api_system_prompt"
+                    class="text_pole wide100p st-chatgpt2api-image-code-textarea"
+                    rows="10"
+                    spellcheck="false"
+                    placeholder="You are a dedicated image prompt assistant..."
+                ></textarea>
+            </div>
+            <div class="flex-container gap5px flexWrap m-t-1">
+                <div id="st_chatgpt2api_image_reset_prompt_system_prompt" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>恢复默认设定</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="st-chatgpt2api-image-card m-t-1">
+            <div class="st-chatgpt2api-image-card-title">模型拉取</div>
+            <small class="st-chatgpt2api-image-help">
+                从提示词接口读取 <code>/models</code>，方便选择用于提示词改写和词库提取的模型。
+            </small>
+            <div class="flex-container gap5px flexWrap m-t-1">
+                <div id="st_chatgpt2api_image_fetch_prompt_models" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                    <span>拉取模型列表</span>
+                </div>
+            </div>
+            <div class="m-t-1">
+                <select id="st_chatgpt2api_image_prompt_api_model_select" class="text_pole wide100p">
+                    <option value="">先拉取模型列表</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="m-t-1">
+            <h4>生图接口地址</h4>
+            <input id="st_chatgpt2api_image_api_url" class="text_pole wide100p" type="text" placeholder="http://43.254.166.19:8888" />
+        </div>
+
+        <div class="m-t-1">
+            <h4>生图接口密钥</h4>
+            <input id="st_chatgpt2api_image_api_key" class="text_pole wide100p" type="password" placeholder="Bearer Token" autocomplete="off" />
+        </div>
+
+        <div class="m-t-1">
+            <h4>生图模型</h4>
+            <input id="st_chatgpt2api_image_model" class="text_pole wide100p" type="text" placeholder="gpt-image-2" />
+        </div>
+
+        <div class="st-chatgpt2api-image-card m-t-1">
+            <div class="st-chatgpt2api-image-card-title">敏感词安全改写</div>
+            <label class="checkbox_label widthFreeExpand">
+                <input id="st_chatgpt2api_image_nsfw_guard_enabled" type="checkbox" />
+                <span>在生成提示词时自动规避敏感词</span>
+            </label>
+            <small class="st-chatgpt2api-image-help">
+                扩展会要求提词模型避开直接使用敏感词，但尽量保留人物关系、镜头、姿势、氛围和服装状态。
+            </small>
+            <div class="m-t-1">
+                <h4>敏感词列表</h4>
+                <textarea
+                    id="st_chatgpt2api_image_nsfw_terms"
+                    class="text_pole wide100p"
+                    rows="5"
+                    placeholder="支持中英文，逗号或换行分隔"
+                    spellcheck="false"
+                ></textarea>
+            </div>
+            <div class="m-t-1">
+                <h4>安全改写偏好</h4>
+                <textarea
+                    id="st_chatgpt2api_image_nsfw_rewrite_hint"
+                    class="text_pole wide100p"
+                    rows="4"
+                    placeholder="告诉模型如何在规避敏感词的同时保留画面感"
+                    spellcheck="false"
+                ></textarea>
+            </div>
+        </div>
+
+        <div class="st-chatgpt2api-image-card m-t-1">
+            <div class="st-chatgpt2api-image-card-title">角色词条提取设定</div>
+            <small class="st-chatgpt2api-image-help">
+                这里会发给提词模型，用来提取角色卡词库。扩展会额外附带角色描述、角色卡自带 character book、绑定世界书和当前激活的相关 lorebook。
+            </small>
+            <div class="m-t-1">
+                <textarea
+                    id="st_chatgpt2api_image_descriptor_card_system_prompt"
+                    class="text_pole wide100p st-chatgpt2api-image-code-textarea"
+                    rows="9"
+                    spellcheck="false"
+                    placeholder="You are a character descriptor extraction assistant..."
+                ></textarea>
+            </div>
+            <div class="flex-container gap5px flexWrap m-t-1">
+                <div id="st_chatgpt2api_image_reset_descriptor_card_system_prompt" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>恢复默认设定</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="st-chatgpt2api-image-card m-t-1">
+            <div class="st-chatgpt2api-image-card-header">
+                <div>
+                    <div class="st-chatgpt2api-image-card-title">角色卡词库</div>
+                    <small id="st_chatgpt2api_image_current_card_label" class="st-chatgpt2api-image-help">未检测到当前角色卡</small>
+                    <small id="st_chatgpt2api_image_card_source_hint" class="st-chatgpt2api-image-help"></small>
+                </div>
+                <small id="st_chatgpt2api_image_card_library_count" class="st-chatgpt2api-image-help"></small>
+            </div>
+            <small class="st-chatgpt2api-image-help">
+                用于保存当前角色卡里每个角色的稳定描述词。多角色卡可以分别保存多个词条，扩展会根据当前楼层自动匹配。
+            </small>
+            <div class="flex-container gap5px flexWrap m-t-1">
+                <div id="st_chatgpt2api_image_extract_card_library" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-users-viewfinder"></i>
+                    <span>识别当前角色卡角色</span>
+                </div>
+                <div id="st_chatgpt2api_image_save_card_library" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span>保存当前卡词库</span>
+                </div>
+                <div id="st_chatgpt2api_image_clear_card_library" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-trash"></i>
+                    <span>清空当前卡词库</span>
+                </div>
+            </div>
+            <div class="m-t-1">
+                <textarea
+                    id="st_chatgpt2api_image_card_library_text"
+                    class="text_pole wide100p st-chatgpt2api-image-code-textarea"
+                    rows="12"
+                    spellcheck="false"
+                    placeholder='[{"name":"角色名","aliases":["别名"],"descriptor":"稳定描述词"}]'
+                ></textarea>
+            </div>
+        </div>
+
+        <div class="st-chatgpt2api-image-card m-t-1">
+            <div class="st-chatgpt2api-image-card-header">
+                <div>
+                    <div class="st-chatgpt2api-image-card-title">用户人设词库</div>
+                    <small id="st_chatgpt2api_image_current_persona_label" class="st-chatgpt2api-image-help">未检测到当前人设</small>
+                </div>
+            </div>
+            <small class="st-chatgpt2api-image-help">
+                从当前用户人设中提取稳定视觉描述词，作为画面里“你自己”的固定锚点。
+            </small>
+            <div class="flex-container gap5px flexWrap m-t-1">
+                <div id="st_chatgpt2api_image_extract_persona_library" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-user-pen"></i>
+                    <span>提取当前人设词</span>
+                </div>
+                <div id="st_chatgpt2api_image_save_persona_library" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-floppy-disk"></i>
+                    <span>保存当前人设词</span>
+                </div>
+                <div id="st_chatgpt2api_image_clear_persona_library" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-trash"></i>
+                    <span>清空当前人设词</span>
+                </div>
+            </div>
+            <div class="m-t-1">
+                <textarea
+                    id="st_chatgpt2api_image_persona_library_text"
+                    class="text_pole wide100p"
+                    rows="5"
+                    spellcheck="false"
+                    placeholder="例如：Adult woman, long silver hair, amber eyes, elegant black dress, calm but dangerous aura"
+                ></textarea>
+            </div>
+            <small id="st_chatgpt2api_image_persona_source_hint" class="st-chatgpt2api-image-help"></small>
+        </div>
+
+        <div class="st-chatgpt2api-image-card m-t-1">
+            <div class="st-chatgpt2api-image-card-title">人设词条提取设定</div>
+            <small class="st-chatgpt2api-image-help">
+                这里会发给提词模型，用来提取用户人设锚点。扩展会额外附带当前 persona 描述和绑定的人设 lorebook。
+            </small>
+            <div class="m-t-1">
+                <textarea
+                    id="st_chatgpt2api_image_descriptor_persona_system_prompt"
+                    class="text_pole wide100p st-chatgpt2api-image-code-textarea"
+                    rows="7"
+                    spellcheck="false"
+                    placeholder="You are a persona descriptor extraction assistant..."
+                ></textarea>
+            </div>
+            <div class="flex-container gap5px flexWrap m-t-1">
+                <div id="st_chatgpt2api_image_reset_descriptor_persona_system_prompt" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-rotate-left"></i>
+                    <span>恢复默认设定</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="m-t-1">
+            <label class="checkbox_label widthFreeExpand">
+                <input id="st_chatgpt2api_image_debug" type="checkbox" />
+                <span>在提示里显示生成后的提示词</span>
+            </label>
+        </div>
+
+        <div class="flex-container gap5px m-t-1">
+            <div id="st_chatgpt2api_image_test_api" class="menu_button menu_button_icon">
+                <i class="fa-solid fa-vial"></i>
+                <span>测试生图接口</span>
+            </div>
+        </div>
+
+        <div id="st_chatgpt2api_image_status" class="st-chatgpt2api-image-status" data-status-type="info">
+            <div class="st-chatgpt2api-image-status-indicator" aria-hidden="true">
+                <span></span>
+                <span></span>
+                <span></span>
+            </div>
+            <div class="st-chatgpt2api-image-status-copy">
+                <div id="st_chatgpt2api_image_status_title" class="st-chatgpt2api-image-status-title">准备就绪</div>
+                <div id="st_chatgpt2api_image_status_text" class="st-chatgpt2api-image-status-text">选择一条消息后即可开始。</div>
+            </div>
+        </div>
+    </div>
+</div>
