@@ -2008,6 +2008,44 @@ async function requestPromptApiModelsViaSillyTavern(settings) {
     });
 }
 
+function extractPromptApiModelIds(result) {
+    const candidateCollections = [
+        result,
+        result?.data,
+        result?.data?.data,
+        result?.models,
+        result?.data?.models,
+        result?.value,
+        result?.result,
+        result?.items,
+        result?.list,
+        result?.model_ids,
+    ];
+
+    return uniqueStrings(candidateCollections.flatMap(collection => {
+        if (!Array.isArray(collection)) {
+            return [];
+        }
+
+        return collection.flatMap(item => {
+            if (typeof item === 'string') {
+                return item;
+            }
+
+            if (!item || typeof item !== 'object') {
+                return [];
+            }
+
+            return [
+                item.id,
+                item.name,
+                item.model,
+                item.model_id,
+            ].filter(value => typeof value === 'string' && String(value).trim());
+        });
+    }));
+}
+
 function getCardLibraryEntries(cardContext) {
     return normalizeLibraryEntries(getCardLibraryRecord(cardContext)?.entries || []);
 }
@@ -2603,35 +2641,80 @@ function bindControlFabDrag() {
 
     const dragNamespace = '.stChatgpt2apiImageFabDrag';
     const ignoreSelector = 'button, input, textarea, select, a';
+    const supportsPointerEvents = typeof window.PointerEvent === 'function';
     let dragState = null;
+
+    const getClientPoint = (event) => {
+        const originalEvent = event?.originalEvent || event;
+
+        if (originalEvent?.touches?.length) {
+            return {
+                clientX: originalEvent.touches[0].clientX,
+                clientY: originalEvent.touches[0].clientY,
+            };
+        }
+
+        if (originalEvent?.changedTouches?.length) {
+            return {
+                clientX: originalEvent.changedTouches[0].clientX,
+                clientY: originalEvent.changedTouches[0].clientY,
+            };
+        }
+
+        return {
+            clientX: Number(originalEvent?.clientX || 0),
+            clientY: Number(originalEvent?.clientY || 0),
+        };
+    };
+
+    const unbindDragEvents = () => {
+        $(document).off(`pointermove${dragNamespace}`);
+        $(document).off(`pointerup${dragNamespace}`);
+        $(document).off(`pointercancel${dragNamespace}`);
+        $(document).off(`mousemove${dragNamespace}`);
+        $(document).off(`mouseup${dragNamespace}`);
+        $(document).off(`touchmove${dragNamespace}`);
+        $(document).off(`touchend${dragNamespace}`);
+        $(document).off(`touchcancel${dragNamespace}`);
+    };
 
     const stopDrag = () => {
         if (dragState?.moved) {
             fab.data('dragMovedAt', Date.now());
         }
 
+        if (dragState?.pointerId != null && fab[0]?.releasePointerCapture) {
+            try {
+                fab[0].releasePointerCapture(dragState.pointerId);
+            } catch {
+                // Ignore pointer-capture release errors from browsers that already released it.
+            }
+        }
+
         dragState = null;
         fab.removeClass('is-dragging');
-        $(document).off(`mousemove${dragNamespace}`);
-        $(document).off(`mouseup${dragNamespace}`);
+        unbindDragEvents();
     };
 
-    fab.off(`mousedown${dragNamespace}`).on(`mousedown${dragNamespace}`, function (event) {
-        if (event.button !== 0) {
-            return;
-        }
-
+    const startDrag = (event) => {
         if ($(event.target).closest(ignoreSelector).length) {
-            return;
+            return false;
         }
 
+        const originalEvent = event?.originalEvent || event;
+        if ((originalEvent?.pointerType === 'mouse' || event.type === 'mousedown') && originalEvent.button !== 0) {
+            return false;
+        }
+
+        const { clientX, clientY } = getClientPoint(event);
         const rect = fab[0].getBoundingClientRect();
         dragState = {
-            startX: event.clientX,
-            startY: event.clientY,
+            startX: clientX,
+            startY: clientY,
             left: rect.left,
             top: rect.top,
             moved: false,
+            pointerId: originalEvent?.pointerId ?? null,
         };
 
         fab.css({
@@ -2641,32 +2724,77 @@ function bindControlFabDrag() {
             bottom: 'auto',
         });
 
-        $(document).off(`mousemove${dragNamespace}`).on(`mousemove${dragNamespace}`, function (moveEvent) {
-            if (!dragState) {
+        event.preventDefault();
+        return true;
+    };
+
+    const handleDragMove = (event) => {
+        if (!dragState) {
+            return;
+        }
+
+        const { clientX, clientY } = getClientPoint(event);
+        event.preventDefault();
+
+        const deltaX = clientX - dragState.startX;
+        const deltaY = clientY - dragState.startY;
+
+        if (!dragState.moved && (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4)) {
+            dragState.moved = true;
+            fab.addClass('is-dragging');
+        }
+
+        const nextLeft = dragState.left + deltaX;
+        const nextTop = dragState.top + deltaY;
+        const maxLeft = Math.max(0, window.innerWidth - fab.outerWidth());
+        const maxTop = Math.max(0, window.innerHeight - fab.outerHeight());
+
+        fab.css({
+            left: `${Math.min(Math.max(0, nextLeft), maxLeft)}px`,
+            top: `${Math.min(Math.max(0, nextTop), maxTop)}px`,
+        });
+    };
+
+    unbindDragEvents();
+    fab.off(`pointerdown${dragNamespace}`);
+    fab.off(`mousedown${dragNamespace}`);
+    fab.off(`touchstart${dragNamespace}`);
+
+    if (supportsPointerEvents) {
+        fab.on(`pointerdown${dragNamespace}`, function (event) {
+            if (!startDrag(event)) {
                 return;
             }
 
-            moveEvent.preventDefault();
-            const deltaX = moveEvent.clientX - dragState.startX;
-            const deltaY = moveEvent.clientY - dragState.startY;
-
-            if (!dragState.moved && (Math.abs(deltaX) > 4 || Math.abs(deltaY) > 4)) {
-                dragState.moved = true;
-                fab.addClass('is-dragging');
+            if (dragState?.pointerId != null && fab[0]?.setPointerCapture) {
+                try {
+                    fab[0].setPointerCapture(dragState.pointerId);
+                } catch {
+                    // Ignore browsers that reject capture for this interaction.
+                }
             }
 
-            const nextLeft = dragState.left + deltaX;
-            const nextTop = dragState.top + deltaY;
-            const maxLeft = Math.max(0, window.innerWidth - fab.outerWidth());
-            const maxTop = Math.max(0, window.innerHeight - fab.outerHeight());
-
-            fab.css({
-                left: `${Math.min(Math.max(0, nextLeft), maxLeft)}px`,
-                top: `${Math.min(Math.max(0, nextTop), maxTop)}px`,
-            });
+            $(document).on(`pointermove${dragNamespace}`, handleDragMove);
+            $(document).on(`pointerup${dragNamespace}`, stopDrag);
+            $(document).on(`pointercancel${dragNamespace}`, stopDrag);
         });
+        return;
+    }
 
-        $(document).off(`mouseup${dragNamespace}`).on(`mouseup${dragNamespace}`, stopDrag);
+    fab.on(`mousedown${dragNamespace} touchstart${dragNamespace}`, function (event) {
+        if (!startDrag(event)) {
+            return;
+        }
+
+        if (event.type === 'touchstart') {
+            $(document).on(`touchmove${dragNamespace}`, handleDragMove);
+            $(document).on(`touchend${dragNamespace}`, stopDrag);
+            $(document).on(`touchcancel${dragNamespace}`, stopDrag);
+            return;
+        }
+
+        $(document).on(`mousemove${dragNamespace}`, handleDragMove);
+        $(document).on(`mouseup${dragNamespace}`, stopDrag);
     });
 }
 
@@ -3592,11 +3720,7 @@ async function fetchPromptApiModels() {
             headers: getPromptApiHeaders(settings, { includeContentType: false }),
         });
 
-    const models = uniqueStrings(
-        Array.isArray(result?.data)
-            ? result.data.map(item => item?.id)
-            : [],
-    );
+    const models = extractPromptApiModelIds(result);
 
     settings.prompt_api_model_options = models;
     if (!String(settings.prompt_api_model || '').trim() && models.length) {
@@ -3796,7 +3920,7 @@ async function onFetchPromptModelsClick() {
         const preview = models.slice(0, 8).join(', ');
         const message = models.length
             ? ('提示词模型拉取成功。可用模型：' + preview)
-            : '提示词模型接口可访问，但没有返回模型列表。';
+            : '提示词模型接口可访问，但没有返回可解析的模型列表。你仍可手动填写模型名继续使用。';
         setStatus(message, 'success');
         toastr.success(message, TOAST_TITLE);
     } catch (error) {
