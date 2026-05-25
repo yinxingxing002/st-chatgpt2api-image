@@ -602,11 +602,7 @@
     display: none;
 }
 
-.st-chatgpt2api-image-control-fab.is-mobile-dock {
-    left: auto !important;
-    top: auto !important;
-    right: max(12px, env(safe-area-inset-right)) !important;
-    bottom: max(14px, env(safe-area-inset-bottom)) !important;
+.st-chatgpt2api-image-control-fab.is-compact {
     width: 50px;
     height: 50px;
     min-width: 50px;
@@ -614,13 +610,20 @@
     max-width: 50px;
     max-height: 50px;
     border-radius: 999px;
-    cursor: pointer;
-    touch-action: manipulation;
+}
+
+.st-chatgpt2api-image-control-fab.is-docked {
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(14px, env(safe-area-inset-bottom));
+}
+
+.st-chatgpt2api-image-control-fab.is-compact {
+    cursor: grab;
     transform: none !important;
     z-index: 60;
 }
 
-.st-chatgpt2api-image-control-fab.is-mobile-dock .st-chatgpt2api-image-control-fab-label {
+.st-chatgpt2api-image-control-fab.is-compact .st-chatgpt2api-image-control-fab-label {
     display: none !important;
 }
 
@@ -1229,7 +1232,7 @@
     }
 
     .st-chatgpt2api-image-control-fab,
-    .st-chatgpt2api-image-control-fab.is-mobile-dock {
+    .st-chatgpt2api-image-control-fab.is-compact {
         width: 50px;
         height: 50px;
         min-width: 50px;

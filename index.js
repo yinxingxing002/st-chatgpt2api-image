@@ -567,6 +567,10 @@ const defaultSettings = {
         cards: {},
         personas: {},
     },
+    control_fab_positions: {
+        desktop: null,
+        mobile: null,
+    },
     debug: false,
 };
 
@@ -587,11 +591,41 @@ function ensureSettings() {
     extension_settings[MODULE_NAME] = extension_settings[MODULE_NAME] || {};
     extension_settings[MODULE_NAME] = Object.assign({}, defaultSettings, extension_settings[MODULE_NAME]);
     const settings = extension_settings[MODULE_NAME];
+    settings.control_fab_positions = normalizeControlFabPositions(settings.control_fab_positions);
     settings.prompt_api_prompt_manager = normalizePromptManagerState(
         settings.prompt_api_prompt_manager,
         settings.prompt_api_system_prompt || DEFAULT_PROMPT_API_SYSTEM_PROMPT,
     );
     return settings;
+}
+
+function clampNumber(value, min, max) {
+    return Math.min(Math.max(Number(value) || 0, min), max);
+}
+
+function normalizeControlFabPoint(value) {
+    if (!value || typeof value !== 'object') {
+        return null;
+    }
+
+    const leftRatio = Number(value.leftRatio);
+    const topRatio = Number(value.topRatio);
+    if (!Number.isFinite(leftRatio) || !Number.isFinite(topRatio)) {
+        return null;
+    }
+
+    return {
+        leftRatio: clampNumber(leftRatio, 0, 1),
+        topRatio: clampNumber(topRatio, 0, 1),
+    };
+}
+
+function normalizeControlFabPositions(value) {
+    const source = value && typeof value === 'object' ? value : {};
+    return {
+        desktop: normalizeControlFabPoint(source.desktop),
+        mobile: normalizeControlFabPoint(source.mobile),
+    };
 }
 
 function isInlineImageButtonEnabled() {
@@ -4282,34 +4316,87 @@ function isMobileFabMode() {
     return window.matchMedia('(max-width: 900px)').matches || window.matchMedia('(pointer: coarse)').matches;
 }
 
+function getControlFabModeKey({ compact = isMobileFabMode() } = {}) {
+    return compact ? 'mobile' : 'desktop';
+}
+
+function getControlFabViewportBounds(fab = getControlFab()) {
+    const width = Math.max(0, Number(fab?.outerWidth?.() || fab?.[0]?.offsetWidth || 0));
+    const height = Math.max(0, Number(fab?.outerHeight?.() || fab?.[0]?.offsetHeight || 0));
+    return {
+        maxLeft: Math.max(0, window.innerWidth - width),
+        maxTop: Math.max(0, window.innerHeight - height),
+        width,
+        height,
+    };
+}
+
+function getSavedControlFabPosition({ compact = isMobileFabMode(), settings = ensureSettings() } = {}) {
+    const modeKey = getControlFabModeKey({ compact });
+    return normalizeControlFabPoint(settings.control_fab_positions?.[modeKey]);
+}
+
+function saveControlFabPosition({ compact = isMobileFabMode(), left = 0, top = 0, width = 0, height = 0 } = {}) {
+    const settings = ensureSettings();
+    const modeKey = getControlFabModeKey({ compact });
+    const maxLeft = Math.max(0, window.innerWidth - Number(width || 0));
+    const maxTop = Math.max(0, window.innerHeight - Number(height || 0));
+    const nextPositions = normalizeControlFabPositions(settings.control_fab_positions);
+    nextPositions[modeKey] = {
+        leftRatio: maxLeft > 0 ? clampNumber(left / maxLeft, 0, 1) : 0,
+        topRatio: maxTop > 0 ? clampNumber(top / maxTop, 0, 1) : 0,
+    };
+    settings.control_fab_positions = nextPositions;
+    saveSettingsDebounced();
+}
+
+function applySavedControlFabPosition({ compact = isMobileFabMode() } = {}) {
+    const fab = getControlFab();
+    if (!fab.length) {
+        return false;
+    }
+
+    const savedPosition = getSavedControlFabPosition({ compact });
+    if (!savedPosition) {
+        return false;
+    }
+
+    const { maxLeft, maxTop } = getControlFabViewportBounds(fab);
+    const nextLeft = clampNumber(savedPosition.leftRatio * maxLeft, 0, maxLeft);
+    const nextTop = clampNumber(savedPosition.topRatio * maxTop, 0, maxTop);
+
+    fab.removeClass('is-docked');
+    fab.css({
+        left: `${nextLeft}px`,
+        top: `${nextTop}px`,
+        right: 'auto',
+        bottom: 'auto',
+    });
+    return true;
+}
+
 function resetControlFabPosition({ compact = isMobileFabMode() } = {}) {
     const fab = getControlFab();
     if (!fab.length) {
         return;
     }
 
-    if (compact) {
-        fab.addClass('is-mobile-dock');
-        fab.removeClass('is-dragging');
-        fab.css({
-            left: '',
-            top: '',
-            right: '',
-            bottom: '',
-        });
+    fab.toggleClass('is-compact', compact);
+    fab.removeClass('is-dragging');
+
+    if (applySavedControlFabPosition({ compact })) {
         fab.removeData('dragMovedAt');
         return;
     }
 
-    fab.removeClass('is-mobile-dock');
-    const hasInlineLeft = String(fab[0]?.style?.left || '').trim();
-    const hasInlineTop = String(fab[0]?.style?.top || '').trim();
-    if (!hasInlineLeft && !hasInlineTop) {
-        fab.css({
-            right: '',
-            bottom: '',
-        });
-    }
+    fab.toggleClass('is-docked', compact);
+    fab.css({
+        left: '',
+        top: '',
+        right: '',
+        bottom: '',
+    });
+    fab.removeData('dragMovedAt');
 }
 
 function attachSettingsContentToControlPanel() {
@@ -4382,6 +4469,16 @@ function bindControlFabDrag() {
     const stopDrag = (event) => {
         if (dragState?.moved) {
             fab.data('dragMovedAt', Date.now());
+            const rect = fab[0]?.getBoundingClientRect();
+            if (rect) {
+                saveControlFabPosition({
+                    compact: dragState.compact,
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                    height: rect.height,
+                });
+            }
             if (releaseClickGuardTimer) {
                 window.clearTimeout(releaseClickGuardTimer);
             }
@@ -4413,7 +4510,8 @@ function bindControlFabDrag() {
     };
 
     const startDrag = (event) => {
-        if ($(event.target).closest(ignoreSelector).length) {
+        const interactiveTarget = $(event.target).closest(ignoreSelector)[0];
+        if (interactiveTarget && interactiveTarget !== fab[0]) {
             return false;
         }
 
@@ -4424,18 +4522,23 @@ function bindControlFabDrag() {
 
         const { clientX, clientY } = getClientPoint(event);
         const rect = fab[0].getBoundingClientRect();
+        const { maxLeft, maxTop } = getControlFabViewportBounds(fab);
+        const startLeft = clampNumber(rect.left, 0, maxLeft);
+        const startTop = clampNumber(rect.top, 0, maxTop);
         dragState = {
             startX: clientX,
             startY: clientY,
-            left: rect.left,
-            top: rect.top,
+            left: startLeft,
+            top: startTop,
             moved: false,
             pointerId: originalEvent?.pointerId ?? null,
+            compact: fab.hasClass('is-compact'),
         };
 
+        fab.removeClass('is-docked');
         fab.css({
-            left: `${rect.left}px`,
-            top: `${rect.top}px`,
+            left: `${startLeft}px`,
+            top: `${startTop}px`,
             right: 'auto',
             bottom: 'auto',
         });
@@ -4482,11 +4585,6 @@ function bindControlFabDrag() {
             bindControlFabDrag();
         });
         fab.data('mobileModeListenerBound', true);
-    }
-
-    if (isMobileFabMode()) {
-        resetControlFabPosition({ compact: true });
-        return;
     }
 
     if (supportsPointerEvents) {
