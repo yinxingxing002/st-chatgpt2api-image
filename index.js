@@ -720,8 +720,8 @@ function repairCurrentChatImageSwipeMetadata() {
         }
 
         const hasManagedImageState = !!(
-            message.extra.image
-            || (Array.isArray(message.extra.image_swipes) && message.extra.image_swipes.length)
+            getCurrentMessageImagePath(message)
+            || getManagedImageUrls(message).length
             || message.extra.chatgpt2api_image_meta
         );
 
@@ -4812,19 +4812,184 @@ async function requestImageWithSafetyRetry(prompt) {
 }
 
 function buildImageSwipeList(message, imagePath) {
-    const swipes = Array.isArray(message?.extra?.image_swipes)
-        ? [...message.extra.image_swipes]
-        : [];
-
-    if (typeof message?.extra?.image === 'string' && message.extra.image.trim() && !swipes.includes(message.extra.image)) {
-        swipes.push(message.extra.image);
-    }
+    const swipes = getManagedImageUrls(message);
 
     if (!swipes.includes(imagePath)) {
         swipes.push(imagePath);
     }
 
     return swipes;
+}
+
+function getOwnPropertyDescriptorSafe(target, propertyName) {
+    if (!target || typeof target !== 'object') {
+        return null;
+    }
+
+    try {
+        return Object.getOwnPropertyDescriptor(target, propertyName) || null;
+    } catch {
+        return null;
+    }
+}
+
+function isArrayBackedImageState(message) {
+    const extra = message?.extra;
+    if (!extra || typeof extra !== 'object') {
+        return false;
+    }
+
+    if (Array.isArray(extra.media)) {
+        return true;
+    }
+
+    const imageDescriptor = getOwnPropertyDescriptorSafe(extra, 'image');
+    return !!imageDescriptor && (typeof imageDescriptor.get === 'function' || typeof imageDescriptor.set === 'function');
+}
+
+function isImageMediaAttachment(attachment) {
+    if (!attachment || typeof attachment !== 'object') {
+        return false;
+    }
+
+    const url = typeof attachment.url === 'string' ? attachment.url.trim() : '';
+    if (!url) {
+        return false;
+    }
+
+    const type = String(attachment.type || 'image').trim().toLowerCase();
+    return !type || type === 'image';
+}
+
+function getMessageImageMediaEntries(message) {
+    if (!Array.isArray(message?.extra?.media)) {
+        return [];
+    }
+
+    return message.extra.media
+        .map((attachment, index) => ({
+            attachment,
+            index,
+            url: typeof attachment?.url === 'string' ? attachment.url.trim() : '',
+        }))
+        .filter(entry => entry.url && isImageMediaAttachment(entry.attachment));
+}
+
+function getManagedImageUrls(message) {
+    if (isArrayBackedImageState(message)) {
+        return uniqueStrings(getMessageImageMediaEntries(message).map(entry => entry.url));
+    }
+
+    const urls = [];
+
+    if (Array.isArray(message?.extra?.image_swipes)) {
+        urls.push(...message.extra.image_swipes);
+    }
+
+    if (typeof message?.extra?.image === 'string' && message.extra.image.trim()) {
+        urls.push(message.extra.image);
+    }
+
+    return uniqueStrings(urls.map(url => String(url || '').trim()).filter(Boolean));
+}
+
+function getCurrentMessageImagePath(message) {
+    if (isArrayBackedImageState(message)) {
+        const media = Array.isArray(message?.extra?.media) ? message.extra.media : [];
+        const mediaIndex = Number.isInteger(message?.extra?.media_index) ? message.extra.media_index : 0;
+        const selectedAttachment = media[mediaIndex];
+
+        if (isImageMediaAttachment(selectedAttachment)) {
+            return String(selectedAttachment.url || '').trim();
+        }
+
+        const firstImage = getMessageImageMediaEntries(message)[0];
+        return firstImage?.url || '';
+    }
+
+    if (typeof message?.extra?.image === 'string' && message.extra.image.trim()) {
+        return message.extra.image.trim();
+    }
+
+    if (Array.isArray(message?.extra?.image_swipes)) {
+        return message.extra.image_swipes.find(url => typeof url === 'string' && url.trim())?.trim() || '';
+    }
+
+    return '';
+}
+
+function syncManagedImageState(message, imageUrls, currentImageUrl, title = '') {
+    if (!message) {
+        return;
+    }
+
+    message.extra = message.extra || {};
+
+    const normalizedUrls = uniqueStrings(
+        (Array.isArray(imageUrls) ? imageUrls : [])
+            .map(url => String(url || '').trim())
+            .filter(Boolean),
+    );
+    const normalizedCurrentUrl = String(currentImageUrl || '').trim();
+    const activeUrl = normalizedCurrentUrl || normalizedUrls[normalizedUrls.length - 1] || '';
+
+    const finalUrls = [...normalizedUrls];
+    if (activeUrl && !finalUrls.includes(activeUrl)) {
+        finalUrls.push(activeUrl);
+    }
+
+    if (finalUrls.length) {
+        message.extra.image_swipes = [...finalUrls];
+    } else {
+        delete message.extra.image_swipes;
+    }
+
+    const imageDescriptor = getOwnPropertyDescriptorSafe(message.extra, 'image');
+    if (!imageDescriptor || imageDescriptor.writable) {
+        if (activeUrl) {
+            message.extra.image = activeUrl;
+        } else {
+            delete message.extra.image;
+        }
+    }
+
+    if (title) {
+        message.extra.title = title;
+    }
+
+    if (!isArrayBackedImageState(message) && !Array.isArray(message.extra.media)) {
+        return;
+    }
+
+    const existingMedia = Array.isArray(message.extra.media) ? message.extra.media : [];
+    const nonImageMedia = existingMedia.filter(attachment => !isImageMediaAttachment(attachment));
+    const imageAttachmentMap = new Map(
+        getMessageImageMediaEntries(message).map(entry => [entry.url, entry.attachment]),
+    );
+    const nextImageMedia = finalUrls.map(url => {
+        const existingAttachment = imageAttachmentMap.get(url);
+
+        return {
+            ...(existingAttachment && typeof existingAttachment === 'object' ? existingAttachment : {}),
+            type: 'image',
+            url,
+            title: title || existingAttachment?.title || message.extra.title || '',
+            source: existingAttachment?.source || 'chatgpt2api-image',
+        };
+    });
+
+    message.extra.media = [...nonImageMedia, ...nextImageMedia];
+
+    if (activeUrl) {
+        const activeIndex = finalUrls.indexOf(activeUrl);
+        if (activeIndex > -1) {
+            message.extra.media_index = nonImageMedia.length + activeIndex;
+        }
+    }
+
+    if (nextImageMedia.length > 1) {
+        message.extra.media_display = 'gallery';
+    }
 }
 
 function syncMessageExtraToCurrentSwipe(messageOrId, { persist = false } = {}) {
@@ -4876,10 +5041,8 @@ async function attachImageToMessage(messageId, prompt, base64Data, sourceMessage
     const messageElement = $(`#chat .mes[mesid="${messageId}"]`);
     const inlineAnchor = getInlineButtonAnchor(messageElement, messageId, message);
     message.extra = message.extra || {};
-    message.extra.image = imagePath;
-    message.extra.title = prompt;
+    syncManagedImageState(message, buildImageSwipeList(message, imagePath), imagePath, prompt);
     message.extra.inline_image = false;
-    message.extra.image_swipes = buildImageSwipeList(message, imagePath);
     message.extra.chatgpt2api_image_meta = {
         ...message.extra.chatgpt2api_image_meta,
         prompt,
@@ -5382,7 +5545,7 @@ function updatePanelSelection(resetPrompt = false) {
     const cleanText = getPlainMessageText(selectedMessage);
     const messageLabel = (selectedMessage.name || '助手') + ' · 第 ' + (runtimeState.selectedMessageId + 1) + ' 层';
     const existingPrompt = String(selectedMessage?.extra?.chatgpt2api_image_meta?.prompt || selectedMessage?.extra?.title || '').trim();
-    const existingImage = String(selectedMessage?.extra?.image || '').trim();
+    const existingImage = getCurrentMessageImagePath(selectedMessage);
 
     $('#st_chatgpt2api_image_panel_source_label').text(messageLabel);
     $('#st_chatgpt2api_image_panel_source_meta').text('楼层 ' + (runtimeState.selectedMessageId + 1));
@@ -5821,7 +5984,8 @@ function refreshMessageMediaPresentation(messageId, { retryBrokenImage = false, 
     }
 
     const message = getMessageById(normalizedId);
-    if (!message?.extra?.image) {
+    const currentImagePath = getCurrentMessageImagePath(message);
+    if (!currentImagePath) {
         return false;
     }
 
@@ -5842,7 +6006,7 @@ function refreshMessageMediaPresentation(messageId, { retryBrokenImage = false, 
     const shouldForceReload = retryBrokenImage && isBrokenMessageImage(imageElement);
     if (imageElement.length && (shouldForceReload || useCacheBust)) {
         const runtimeSrc = buildCacheBustedImageSrc(
-            message.extra.image,
+            currentImagePath,
             message?.extra?.chatgpt2api_image_meta?.updatedAt || Date.now(),
         );
 
@@ -5926,9 +6090,42 @@ function applyInlineMediaPlacement(messageId) {
         return;
     }
 
-    const imageContainers = messageElement.find('.mes_img_container');
     const textContainer = messageElement.find('.mes_text').first();
-    if (!imageContainers.length || !textContainer.length) {
+    if (!textContainer.length) {
+        return;
+    }
+
+    const mediaWrapper = messageElement.find('.mes_media_wrapper').first();
+    if (mediaWrapper.length) {
+        // Clean up legacy inline image nodes from older builds so 1.15+ delete/replace
+        // operations only manipulate the native media wrapper.
+        messageElement
+            .find('.mes_img_container.st-chatgpt2api-image-inline-media')
+            .filter((_, element) => $(element).closest('.mes_media_wrapper').length === 0)
+            .remove();
+
+        const inlineSlot = getExistingInlineSlot(textContainer, normalizedId);
+        const inlineMediaSlot = inlineSlot.find(MESSAGE_INLINE_SLOT_MEDIA_SELECTOR).first();
+        if (inlineMediaSlot.length) {
+            inlineMediaSlot.append(mediaWrapper);
+            mediaWrapper.addClass('st-chatgpt2api-image-inline-media-wrapper');
+            return;
+        }
+
+        const inlineAction = textContainer.find(`${MESSAGE_ACTION_SELECTOR}.is-inline`).first();
+        if (inlineAction.length) {
+            inlineAction.after(mediaWrapper);
+            mediaWrapper.addClass('st-chatgpt2api-image-inline-media-wrapper');
+            return;
+        }
+
+        textContainer.after(mediaWrapper);
+        mediaWrapper.removeClass('st-chatgpt2api-image-inline-media-wrapper');
+        return;
+    }
+
+    const imageContainers = messageElement.find('.mes_img_container');
+    if (!imageContainers.length) {
         return;
     }
 
@@ -6052,13 +6249,14 @@ async function onInlineImageSwiped({ message, element, direction }) {
         return;
     }
 
-    const swipes = message?.extra?.image_swipes;
+    const swipes = getManagedImageUrls(message);
 
     if (!Array.isArray(swipes) || swipes.length < 2) {
         return;
     }
 
-    const currentIndex = swipes.indexOf(message.extra.image);
+    const currentImagePath = getCurrentMessageImagePath(message);
+    const currentIndex = swipes.indexOf(currentImagePath);
 
     if (currentIndex === -1) {
         return;
@@ -6069,7 +6267,7 @@ async function onInlineImageSwiped({ message, element, direction }) {
         : (currentIndex === swipes.length - 1 ? 0 : currentIndex + 1);
 
     const normalizedMessageId = normalizeMessageId($(element).attr('mesid'));
-    message.extra.image = swipes[nextIndex];
+    syncManagedImageState(message, swipes, swipes[nextIndex], message.extra.title || '');
     syncMessageExtraToCurrentSwipe(message);
     appendMediaToMessage(message, element, false);
     restoreMessageTextVisibility(normalizedMessageId);
@@ -6077,7 +6275,7 @@ async function onInlineImageSwiped({ message, element, direction }) {
     scheduleMessageMediaRefresh(normalizedMessageId, { retryBrokenImage: true });
 
     if (runtimeState.selectedMessageId !== null && getMessageById(runtimeState.selectedMessageId) === message) {
-        setPanelPreview(message.extra.image, message.extra.title || '');
+        setPanelPreview(getCurrentMessageImagePath(message), message.extra.title || '');
     }
 
     await getContext().saveChat();
