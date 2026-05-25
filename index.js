@@ -2674,7 +2674,7 @@ function getImageApiEndpointCandidates(settings = ensureSettings(), endpointPath
     }
 
     const proxyEndpoints = directEndpoints
-        .filter(endpointUrl => isAbsoluteHttpUrl(endpointUrl) || isAbsoluteHttpsUrl(endpointUrl))
+        .filter(endpointUrl => isAbsoluteHttpUrl(endpointUrl))
         .map(endpointUrl => buildSillyTavernCorsProxyUrl(endpointUrl))
         .filter(Boolean);
 
@@ -3943,6 +3943,164 @@ function blobToBase64(blob) {
     });
 }
 
+function isLikelyBase64ImageString(value) {
+    const normalized = String(value || '').trim().replace(/\s+/g, '');
+    return normalized.length >= 128 && /^[A-Za-z0-9+/=]+$/.test(normalized);
+}
+
+function extractImageDataUrlPayload(value) {
+    const match = String(value || '').trim().match(/^data:(image\/[a-z0-9.+-]+);base64,([\s\S]+)$/i);
+    if (!match?.[2]) {
+        return null;
+    }
+
+    return {
+        base64Data: match[2].trim().replace(/\s+/g, ''),
+        extension: getImageExtensionFromMimeType(match[1]) || 'png',
+    };
+}
+
+function extractImageUrlFromText(value) {
+    const text = String(value || '').trim();
+    if (!text) {
+        return '';
+    }
+
+    const markdownMatch = text.match(/!\[[^\]]*]\((https?:\/\/[^)\s]+)\)/i);
+    if (markdownMatch?.[1]) {
+        return markdownMatch[1];
+    }
+
+    const urlMatch = text.match(/https?:\/\/[^\s"'<>]+/i);
+    if (urlMatch?.[0]) {
+        return urlMatch[0];
+    }
+
+    if (text.startsWith('/')) {
+        try {
+            return new URL(text, window.location.href).href;
+        } catch {
+            return '';
+        }
+    }
+
+    return '';
+}
+
+function normalizeImagePayloadFromText(value) {
+    const text = String(value || '').trim();
+    if (!text) {
+        return null;
+    }
+
+    const dataUrlPayload = extractImageDataUrlPayload(text);
+    if (dataUrlPayload) {
+        return dataUrlPayload;
+    }
+
+    const imageUrl = extractImageUrlFromText(text);
+    if (imageUrl) {
+        return { imageUrl };
+    }
+
+    if (isLikelyBase64ImageString(text)) {
+        return {
+            base64Data: text.replace(/\s+/g, ''),
+            extension: 'png',
+        };
+    }
+
+    return null;
+}
+
+function extractImagePayloadCandidate(value, seen = new WeakSet(), depth = 0) {
+    if (value == null || depth > 5) {
+        return null;
+    }
+
+    if (typeof value === 'string') {
+        const normalized = normalizeImagePayloadFromText(value);
+        if (normalized) {
+            return normalized;
+        }
+
+        const reparsed = tryParseJson(value);
+        if (reparsed && reparsed !== value) {
+            return extractImagePayloadCandidate(reparsed, seen, depth + 1);
+        }
+
+        return null;
+    }
+
+    if (typeof value !== 'object') {
+        return null;
+    }
+
+    if (seen.has(value)) {
+        return null;
+    }
+
+    seen.add(value);
+
+    const priorityCandidates = [
+        value?.data?.[0]?.b64_json,
+        value?.data?.[0]?.base64,
+        value?.data?.[0]?.b64,
+        value?.data?.[0]?.image_base64,
+        value?.data?.[0]?.image,
+        value?.data?.[0]?.url,
+        value?.data?.[0],
+        value?.images?.[0],
+        value?.artifacts?.[0]?.base64,
+        value?.artifacts?.[0]?.url,
+        value?.artifacts?.[0],
+        value?.output?.[0]?.b64_json,
+        value?.output?.[0]?.base64,
+        value?.output?.[0]?.url,
+        value?.output?.[0],
+        value?.result?.data?.[0]?.b64_json,
+        value?.result?.data?.[0]?.url,
+        value?.result?.image,
+        value?.result?.base64,
+        value?.response?.data?.[0]?.b64_json,
+        value?.response?.data?.[0]?.url,
+        value?.image_base64,
+        value?.b64_json,
+        value?.base64,
+        value?.b64,
+        value?.image,
+        value?.image_url,
+        value?.url,
+    ];
+
+    for (const candidate of priorityCandidates) {
+        const normalized = extractImagePayloadCandidate(candidate, seen, depth + 1);
+        if (normalized) {
+            return normalized;
+        }
+    }
+
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            const normalized = extractImagePayloadCandidate(item, seen, depth + 1);
+            if (normalized) {
+                return normalized;
+            }
+        }
+
+        return null;
+    }
+
+    for (const nestedValue of Object.values(value)) {
+        const normalized = extractImagePayloadCandidate(nestedValue, seen, depth + 1);
+        if (normalized) {
+            return normalized;
+        }
+    }
+
+    return null;
+}
+
 async function fetchImageUrlAsBase64Payload(imageUrl, settings = ensureSettings()) {
     const candidates = buildImageFetchCandidates(imageUrl, settings);
     let lastError = null;
@@ -3976,6 +4134,69 @@ async function fetchImageUrlAsBase64Payload(imageUrl, settings = ensureSettings(
     }
 
     throw lastError || new Error('图片地址没有返回可用的图片数据。');
+}
+
+async function fetchImageGenerationPayload(url, options, settings = ensureSettings()) {
+    let response;
+
+    try {
+        response = await fetch(url, options);
+    } catch (error) {
+        const wrappedError = new Error(buildFriendlyFetchFailureMessage(url, error));
+        wrappedError.cause = error;
+        wrappedError.url = url;
+        wrappedError.isNetworkError = true;
+        throw wrappedError;
+    }
+
+    if (!response.ok) {
+        const text = await response.text();
+        const parsedPayload = tryParseJson(text);
+        const rawMessage = getErrorMessageFromPayload(parsedPayload) || text;
+        const error = new Error(buildFriendlyApiErrorMessage(rawMessage, response));
+        error.status = response.status;
+        error.payload = parsedPayload;
+        error.rawMessage = rawMessage;
+        error.responseText = text;
+        error.url = url;
+        throw error;
+    }
+
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (contentType.startsWith('image/') || contentType.includes('application/octet-stream')) {
+        const blob = await response.blob();
+        const base64Data = await blobToBase64(blob);
+
+        if (!base64Data) {
+            throw new Error('生图接口返回了图片响应，但图片数据为空。');
+        }
+
+        return {
+            base64Data,
+            extension: getImageExtensionFromMimeType(blob.type) || 'png',
+        };
+    }
+
+    const text = await response.text();
+    const parsedPayload = tryParseJson(text);
+    const normalized = extractImagePayloadCandidate(parsedPayload ?? text);
+
+    if (!normalized) {
+        throw new Error('生图接口没有返回可用的图片数据。');
+    }
+
+    if (normalized.base64Data) {
+        return {
+            base64Data: normalized.base64Data,
+            extension: normalized.extension || 'png',
+        };
+    }
+
+    if (normalized.imageUrl) {
+        return await fetchImageUrlAsBase64Payload(normalized.imageUrl, settings);
+    }
+
+    throw new Error('生图接口没有返回可用的图片数据。');
 }
 
 async function buildPromptLegacy(sourceMessage) {
@@ -4525,26 +4746,11 @@ async function requestImage(prompt) {
 
     for (const generationsUrl of generationUrls) {
         try {
-            const result = await fetchJsonOrText(generationsUrl, {
+            return await fetchImageGenerationPayload(generationsUrl, {
                 method: 'POST',
                 headers,
                 body: JSON.stringify(payload),
-            });
-
-            const base64Data = result?.data?.[0]?.b64_json;
-            if (base64Data) {
-                return {
-                    base64Data,
-                    extension: 'png',
-                };
-            }
-
-            const imageUrl = result?.data?.[0]?.url;
-            if (imageUrl) {
-                return await fetchImageUrlAsBase64Payload(imageUrl, settings);
-            }
-
-            throw new Error('生图接口没有返回可用的图片数据。');
+            }, settings);
         } catch (error) {
             lastError = error;
         }
