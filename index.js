@@ -53,6 +53,10 @@ const BUNDLED_PROTOCOL_PRESETS = [
         path: `scripts/extensions/${EXTENSION_NAME}/presets/Gemini_MyGO_ImagePromptExtract.json`,
         fallbackName: 'Gemini MyGO Image Prompt Extract',
     },
+    {
+        path: `scripts/extensions/${EXTENSION_NAME}/presets/Kemini_Aether_ImagePromptExtract.json`,
+        fallbackName: 'Kemini Aether Image Prompt Extract',
+    },
 ];
 const STATUS_TITLES = {
     info: '准备就绪',
