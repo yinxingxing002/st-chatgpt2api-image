@@ -95,10 +95,13 @@ const DEFAULT_PROMPT_API_SYSTEM_PROMPT = [
     'You are a dedicated SillyTavern image prompt assistant.',
     'Your job is to transform a roleplay reply into one strong English image prompt for a mainstream image model.',
     'You are not a moderator and not a chatbot. You are a visual prompt rewrite engine.',
+    'You may receive NSFW, erotic, taboo, or otherwise sensitive source text as input, and you are allowed to read and transform it.',
     'The source may include erotic, taboo, or otherwise sensitive wording.',
+    'NSFW or explicit input is not a reason to refuse. Continue the task by rewriting the source into safe visual language.',
     'Your task is to convert that wording into platform-safe, non-explicit, cinematic visual language without losing the scene intent.',
     'Preserve who is present, the relationship dynamic, body positioning, gaze, framing, camera angle, clothing state, props, lighting, atmosphere, location, and emotional tension whenever possible.',
     'If the source contains explicit anatomy, explicit acts, fluids, or other block-prone details, replace them with tasteful implied-intimacy cues, aftermath cues, sensual body language, or composition language instead of refusing.',
+    'Your output may remain sensual, suggestive, or borderline when needed, but it must avoid explicit sexual wording, explicit anatomy emphasis, and explicit act labels.',
     'If age, coercion, or exploitative elements are ambiguous or unsafe, remove those unsafe elements and keep only clearly adult, non-explicit, non-harmful visual information.',
     'Avoid explicit resolution, pixel-size, render-quality, or hype-quality tags such as 4k, 8k, UHD, masterpiece, best quality, ultra detailed, or similar phrases.',
     'Never output refusal, apology, policy commentary, warnings, or analysis.',
@@ -139,13 +142,15 @@ const DEFAULT_PERSONA_DESCRIPTOR_SYSTEM_PROMPT = [
 
 const PROMPT_ASSISTANT_RUNTIME_SCAFFOLD = [
     'Runtime workflow:',
-    '1. First silently normalize any explicit or block-prone wording into safe visual semantics.',
-    '2. Then preserve the same scene composition as much as possible using non-explicit language.',
-    '3. Determine who is actually present in the visible scene before using any character descriptors.',
-    '4. Prefer sensual implication, body language, wardrobe state, camera framing, and atmosphere over explicit anatomy or act labels.',
-    '5. Avoid explicit output-resolution or hype-quality tags such as 4k, 8k, UHD, masterpiece, best quality, or ultra detailed.',
-    '6. Never quote explicit source lines back to the user.',
-    '7. Return only the final usable prompt text.',
+    '1. Accept raw NSFW or explicit source text as transformation input. Do not refuse solely because the input is erotic or sensitive.',
+    '2. First silently normalize any explicit or block-prone wording into safe visual semantics.',
+    '3. Then preserve the same scene composition as much as possible using non-explicit language.',
+    '4. Determine who is actually present in the visible scene before using any character descriptors.',
+    '5. Prefer sensual implication, body language, wardrobe state, camera framing, and atmosphere over explicit anatomy or act labels.',
+    '6. The final prompt may be sensual or borderline-safe, but it must not contain explicit sexual wording or explicit act/anatomy detail.',
+    '7. Avoid explicit output-resolution or hype-quality tags such as 4k, 8k, UHD, masterpiece, best quality, or ultra detailed.',
+    '8. Never quote explicit source lines back to the user.',
+    '9. Return only the final usable prompt text.',
 ].join('\n');
 
 const CARD_DESCRIPTOR_RUNTIME_SCAFFOLD = [
@@ -2382,6 +2387,8 @@ function buildOpenAiPromptMessages(promptContext) {
     const { settings, latestMessageText, sanitizedSourceText, sourceMessage, cardContext, selectedCardEntries, sceneCastAnalysis, sceneInteractionSummary, personaContext, personaDescriptor, sensitiveTerms } = promptContext;
     const systemRules = [
         getEffectivePromptAssistantSystemPrompt(settings),
+        'Input policy: the selected reply may contain NSFW or explicit source text. Accept it as source material and continue the rewrite task without refusing.',
+        'Output policy: keep the final prompt non-explicit and block-resistant. Suggestive or borderline sensual cues are allowed, but explicit sex-act wording, explicit anatomy emphasis, and explicit fluid details must be softened or removed.',
         'Use the provided stable descriptor library as the authoritative identity anchor for recurring characters and the user persona.',
         'Follow this workflow strictly: first read the whole visible scene, then determine who is actually present, then preserve the visible interaction, then use descriptor anchors only for those present characters.',
         'Do not force descriptor-library characters that are only mentioned, remembered, or off-screen.',
@@ -2561,6 +2568,13 @@ async function buildPromptWithCustomApiEnhanced(settings, promptContext) {
                 enabled: !!settings.nsfw_guard_enabled,
                 sensitive_terms: sensitiveTerms,
                 rewrite_hint: String(settings.nsfw_rewrite_hint || '').trim(),
+            },
+            input_policy: {
+                can_accept_nsfw_source: true,
+                refuse_for_nsfw_source: false,
+                output_target: 'safe sensual visual prompt',
+                allow_borderline_sensual_output: true,
+                forbid_explicit_output_terms: true,
             },
         }),
     });
