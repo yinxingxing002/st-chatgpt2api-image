@@ -48,6 +48,12 @@ const PROTOCOL_PRESET_SELECTION_CUSTOM = '__working_copy__';
 const PROTOCOL_PRESET_SELECTION_DEFAULT = '__builtin_default__';
 const PROTOCOL_PRESET_FILE_KIND = 'st-chatgpt2api-image.prompt-preset';
 const PROTOCOL_PRESET_FILE_VERSION = 1;
+const BUNDLED_PROTOCOL_PRESETS = [
+    {
+        path: `scripts/extensions/${EXTENSION_NAME}/presets/Gemini_MyGO_ImagePromptExtract.json`,
+        fallbackName: 'Gemini MyGO Image Prompt Extract',
+    },
+];
 const STATUS_TITLES = {
     info: '准备就绪',
     busy: '处理中',
@@ -431,6 +437,37 @@ function normalizePromptManagerOrderEntry(rawEntry) {
     };
 }
 
+function selectNativePromptPresetOrder(promptOrder) {
+    if (!Array.isArray(promptOrder)) {
+        return promptOrder;
+    }
+
+    const groups = promptOrder
+        .filter(entry => Array.isArray(entry?.order) && entry.order.length)
+        .map(entry => {
+            const enabledCount = entry.order.filter(item => item?.enabled !== false).length;
+            return {
+                order: entry.order,
+                enabledCount,
+                totalCount: entry.order.length,
+            };
+        });
+
+    if (!groups.length) {
+        return promptOrder;
+    }
+
+    groups.sort((left, right) => {
+        if (right.enabledCount !== left.enabledCount) {
+            return right.enabledCount - left.enabledCount;
+        }
+
+        return right.totalCount - left.totalCount;
+    });
+
+    return groups[0].order;
+}
+
 function normalizePromptManagerState(rawState, fallbackMainPrompt = DEFAULT_PROMPT_API_SYSTEM_PROMPT) {
     if (typeof rawState === 'string' && rawState.trim()) {
         return buildDefaultPromptManagerState(rawState.trim());
@@ -449,12 +486,7 @@ function normalizePromptManagerState(rawState, fallbackMainPrompt = DEFAULT_PROM
         }
         : rawState;
 
-    const sourcePromptOrder = Array.isArray(source.prompt_order) && source.prompt_order.some(entry => Array.isArray(entry?.order))
-        ? source.prompt_order.find(entry => Number(entry?.character_id) === 100000)?.order
-            || source.prompt_order.find(entry => Array.isArray(entry?.order) && entry.order.length)
-                ?.order
-            || []
-        : source.prompt_order;
+    const sourcePromptOrder = selectNativePromptPresetOrder(source.prompt_order);
 
     const normalizedPrompts = Array.isArray(source.prompts)
         ? source.prompts
@@ -467,6 +499,7 @@ function normalizePromptManagerState(rawState, fallbackMainPrompt = DEFAULT_PROM
             .map(normalizePromptManagerOrderEntry)
             .filter(Boolean)
         : [];
+    const hasExplicitOrder = normalizedOrder.length > 0;
 
     const prompts = normalizedPrompts.length
         ? normalizedPrompts
@@ -500,7 +533,7 @@ function normalizePromptManagerState(rawState, fallbackMainPrompt = DEFAULT_PROM
         }
 
         seen.add(prompt.identifier);
-        order.push({ identifier: prompt.identifier, enabled: !prompt.marker });
+        order.push({ identifier: prompt.identifier, enabled: hasExplicitOrder ? false : !prompt.marker });
     }
 
     return {
@@ -1421,6 +1454,30 @@ function upsertProtocolPreset(settings, preset) {
     }
 
     return normalized;
+}
+
+async function ensureBundledProtocolPresets() {
+    const settings = ensureProtocolPresetSettings();
+    let changed = false;
+
+    for (const bundledPreset of BUNDLED_PROTOCOL_PRESETS) {
+        try {
+            const source = await fetchJsonOrText(bundledPreset.path, { method: 'GET' });
+            const normalized = normalizeProtocolPresetRecord(source, bundledPreset.fallbackName);
+            if (!normalized || findStoredProtocolPreset(settings, normalized.name)) {
+                continue;
+            }
+
+            upsertProtocolPreset(settings, normalized);
+            changed = true;
+        } catch (error) {
+            console.warn('Failed to load bundled protocol preset', bundledPreset.path, error);
+        }
+    }
+
+    if (changed) {
+        saveSettingsDebounced();
+    }
 }
 
 function removeStoredProtocolPreset(settings, name) {
@@ -3475,6 +3532,38 @@ function getPromptFromPayload(payload) {
     return '';
 }
 
+function extractTaggedImagePrompt(rawText) {
+    let text = String(rawText || '').trim();
+    if (!text) {
+        return '';
+    }
+
+    const imageHashMatch = text.match(/image\s*###\s*([\s\S]*?)\s*###/i);
+    if (imageHashMatch?.[1]?.trim()) {
+        return normalizeWhitespace(imageHashMatch[1]);
+    }
+
+    const hashMatch = text.match(/###\s*([\s\S]*?)\s*###/);
+    if (hashMatch?.[1]?.trim()) {
+        return normalizeWhitespace(hashMatch[1]);
+    }
+
+    const imageTagMatch = text.match(/<image[^>]*>\s*([\s\S]*?)\s*<\/image>/i);
+    if (imageTagMatch?.[1]?.trim()) {
+        text = imageTagMatch[1].trim();
+    }
+
+    text = text
+        .replace(/<imgthink[^>]*>[\s\S]*?<\/imgthink>/gi, ' ')
+        .replace(/<thinking[^>]*>[\s\S]*?<\/thinking>/gi, ' ')
+        .replace(/<think[^>]*>[\s\S]*?<\/think>/gi, ' ')
+        .replace(/<\/?image[^>]*>/gi, ' ')
+        .replace(/^\s*【[^】]+】\s*/u, ' ')
+        .replace(/^\s*(?:sfw|safe|nsfw)\s*[:,，-]?\s*/i, ' ');
+
+    return normalizeWhitespace(text);
+}
+
 async function fetchJsonOrText(url, options) {
     let response;
 
@@ -4006,7 +4095,7 @@ async function buildPromptWithOpenAiCompatibleApiEnhanced(settings, promptContex
     const result = await requestPromptApiChatCompletion(settings, await buildOpenAiPromptMessages(promptContext), {
         temperature: 0.65,
     });
-    const prompt = getPromptFromPayload(result);
+    const prompt = extractTaggedImagePrompt(getPromptFromPayload(result));
 
     if (!prompt) {
         throw new Error('提示词接口没有返回可用的提示词。');
@@ -4070,7 +4159,7 @@ async function buildPromptWithCustomApiEnhanced(settings, promptContext) {
             },
         }),
     });
-    const prompt = getPromptFromPayload(result);
+    const prompt = extractTaggedImagePrompt(getPromptFromPayload(result));
 
     if (!prompt) {
         throw new Error('提示词接口没有返回可用的提示词。');
@@ -6268,6 +6357,7 @@ function bindChatLifecycleEvents() {
 
 jQuery(async function () {
     ensureSettings();
+    await ensureBundledProtocolPresets();
     await addSettingsUi();
     await addControlPanel();
     await addFloatingPanel();

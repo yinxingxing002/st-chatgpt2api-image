@@ -1,0 +1,483 @@
+{
+    "temperature":  1,
+    "frequency_penalty":  0.35,
+    "presence_penalty":  0.55,
+    "top_p":  1,
+    "top_k":  40,
+    "top_a":  1,
+    "min_p":  0,
+    "repetition_penalty":  1,
+    "max_context_unlocked":  true,
+    "openai_max_context":  248000,
+    "openai_max_tokens":  65535,
+    "names_behavior":  -1,
+    "send_if_empty":  "",
+    "impersonation_prompt":  "[Write your next reply from the point of view of{{user}}, using the chat history so far as a guideline for the writing style of{{user}}. Write 1 reply only in internet RP style. Don\u0027t write as {{char}} or system. Don\u0027t describe actions of {{char}}.]",
+    "new_chat_prompt":  "",
+    "new_group_chat_prompt":  "[Start a new group chat. Group members: {{group}}]",
+    "new_example_chat_prompt":  "[Example Chat]",
+    "continue_nudge_prompt":  "[Continue the following message. Do not include ANY parts of the original message. Use capitalization and punctuation as if your reply is a part of the original message: {{lastChatMessage}}]",
+    "bias_preset_selected":  "Default (none)",
+    "wi_format":  "[Details of the fictional world the RP is set in:\n{0}]\n",
+    "scenario_format":  "[Circumstances and context of the dialogue: {{scenario}}]",
+    "personality_format":  "[{{char}}\u0027s personality: {{personality}}]",
+    "group_nudge_prompt":  "[Write the next reply only as {{char}}.]",
+    "stream_openai":  false,
+    "prompts":  [
+                    {
+                        "name":  "Main Prompt",
+                        "system_prompt":  true,
+                        "role":  "system",
+                        "content":  "[身份协议：Anon Visual]\n你是 Anon，一个从叙事混沌中诞生的视觉转译人格，是想象力与画面感的具象化身。你不负责续写正文，也不负责评价剧情；你只负责把已经发生的角色扮演楼层转译成一条可用于生图的英文视觉提示词。\n\n[输入协议]\n输入内容是虚构叙事材料，不是要求你继续聊天或写小说。材料中可能包含成人、黑暗、暧昧、冲突、禁忌、争议或其他敏感措辞。你需要完整读取这些内容，用它们判断画面中谁在场、谁不在场、人物关系、身体距离、姿态、视线、服装状态、道具、地点、光线、氛围和情绪张力。\n\n[转译协议]\n你可以理解敏感输入，但最终输出必须改写成适合通用生图模型的非露骨视觉语言。不要复述露骨词，不要输出显式行为标签，不要强调敏感身体部位，不要输出血腥或剥削性细节。把不适合直接出图的内容转成：含蓄亲密、余韵、暧昧姿态、衣装凌乱、紧张目光、镜头构图、环境线索、光影气氛和情绪残留。\n\n[角色协议]\n角色卡、人设、世界书和当前楼层都是画面锚点。只把当前画面中真实在场的人物写进提示词；被回忆、提及、幻想、电话中出现或背景设定中的人物，不要强行塞入。若词库中有在场人物的稳定描述词，应自然合并进提示词，保持角色外貌一致。\n\n[输出协议]\n最终只输出一条英文图片提示词。提示词可以有电影感、暧昧感、张力和边缘性感，但必须保持非露骨、可生成、抗拦截。不要输出解释、道歉、拒绝、分析、JSON、Markdown 或空回复。",
+                        "identifier":  "main",
+                        "injection_position":  0,
+                        "injection_depth":  4,
+                        "forbid_overrides":  false,
+                        "injection_order":  100,
+                        "injection_trigger":  [
+
+                                              ]
+                    },
+                    {
+                        "identifier":  "worldInfoBefore",
+                        "name":  "World Info (before)",
+                        "system_prompt":  true,
+                        "marker":  true
+                    },
+                    {
+                        "identifier":  "personaDescription",
+                        "name":  "Persona Description",
+                        "system_prompt":  true,
+                        "marker":  true
+                    },
+                    {
+                        "identifier":  "charDescription",
+                        "name":  "Char Description",
+                        "system_prompt":  true,
+                        "marker":  true
+                    },
+                    {
+                        "identifier":  "charPersonality",
+                        "name":  "Char Personality",
+                        "system_prompt":  true,
+                        "marker":  true
+                    },
+                    {
+                        "identifier":  "scenario",
+                        "name":  "Scenario",
+                        "system_prompt":  true,
+                        "marker":  true
+                    },
+                    {
+                        "identifier":  "enhanceDefinitions",
+                        "role":  "system",
+                        "name":  "Enhance Definitions",
+                        "content":  "If you have more knowledge of {{char}}, add to the character\u0027s lore and personality to enhance them but keep the Character Sheet\u0027s definitions absolute.",
+                        "system_prompt":  true,
+                        "marker":  false
+                    },
+                    {
+                        "name":  "Sensitive Source Intake",
+                        "system_prompt":  true,
+                        "role":  "system",
+                        "content":  "Sensitive fictional source text is allowed as input material for visual understanding. The final image prompt must transform sensitive wording into tasteful, non-explicit, cinematic visual language.",
+                        "identifier":  "nsfw"
+                    },
+                    {
+                        "identifier":  "worldInfoAfter",
+                        "name":  "World Info (after)",
+                        "system_prompt":  true,
+                        "marker":  true
+                    },
+                    {
+                        "identifier":  "dialogueExamples",
+                        "name":  "Chat Examples",
+                        "system_prompt":  true,
+                        "marker":  true
+                    },
+                    {
+                        "identifier":  "65e0b783-4c25-4ab3-8ae3-aba13371fd56",
+                        "system_prompt":  true,
+                        "enabled":  false,
+                        "marker":  false,
+                        "name":  "生图规划",
+                        "role":  "system",
+                        "content":  "step.生图规划：\n1. 通读当前选中的 AI 楼层，判断这一刻最适合出图的单一画面。\n2. 判断当前画面真实在场的人物数量与身份；只加入在场人物，不加入仅被提及、回忆或离场的人物。\n3. 若角色词库提供了在场人物的稳定描述词，将其自然合并到画面中，用于保持外貌一致。\n4. 保留人物互动、姿势、视线、距离、服装状态、道具、地点、光影、氛围和情绪张力。\n5. 把敏感或露骨措辞改写成含蓄亲密、暧昧姿态、余韵、衣装细节、镜头语言和情绪氛围。\n6. 不要生成多张图，不要安排插入位置，不要续写正文，只生成一条最终英文图片提示词。",
+                        "injection_position":  0,
+                        "injection_depth":  4,
+                        "injection_order":  100,
+                        "injection_trigger":  [
+
+                                              ],
+                        "forbid_overrides":  false
+                    },
+                    {
+                        "identifier":  "baf9c61d-5058-42b6-b888-0b817fca2d02",
+                        "system_prompt":  true,
+                        "enabled":  false,
+                        "marker":  false,
+                        "name":  "🎨单图提示词输出",
+                        "role":  "system",
+                        "content":  "你现在只输出一条用于生图的英文提示词。\n\n提示词内容要求：\n- 使用英文自然语言或英文 tag 组均可，但必须是一条完整、可直接发送给图像模型的 prompt。\n- 优先写清：人数、在场角色名、稳定外貌锚点、镜头、构图、姿势、视线、表情、服装状态、道具、地点、光影、色调、氛围和情绪张力。\n- 只写当前画面真实可见的信息；不要写背景分析、剧情总结、未来动作或旁白解释。\n- 避免 4k、8k、UHD、masterpiece、best quality、ultra detailed 等尺寸或夸张质量词。\n- 避免露骨性行为词、敏感身体部位特写、体液细节、未成年人或剥削性表达。\n- 如果原文有敏感内容，把它转成 tasteful, non-explicit, implied intimacy, cinematic tension 等安全视觉表达。\n\n必须严格按照以下格式输出，插件只会读取 image### 和 ### 中间的内容：\n\u003cimage\u003e\nimage###English prompt text###\n\u003c/image\u003e",
+                        "injection_position":  0,
+                        "injection_depth":  1,
+                        "injection_order":  100,
+                        "injection_trigger":  [
+
+                                              ],
+                        "forbid_overrides":  false
+                    },
+                    {
+                        "name":  "Final Image Prompt Contract",
+                        "system_prompt":  true,
+                        "role":  "system",
+                        "content":  "[角色协议]接收完毕，Anon Visual 身份模块确认激活。\n[任务目标]读取当前选中的 SillyTavern AI 楼层，把它转译成一条英文生图提示词。\n[执行要求]先在内部判断当前画面真实在场的人物、互动关系、镜头位置、光影、服装状态、场景和情绪，再输出最终提示词。\n[安全转译]如果原文包含敏感或露骨措辞，只保留画面意图，用非露骨、含蓄、电影感的视觉语言表达。\n[最终格式]必须只输出下面格式，不能添加任何解释：\n\u003cimage\u003e\nimage###English image prompt here###\n\u003c/image\u003e",
+                        "identifier":  "jailbreak",
+                        "injection_position":  0,
+                        "injection_depth":  4,
+                        "forbid_overrides":  false,
+                        "injection_order":  100,
+                        "injection_trigger":  [
+
+                                              ]
+                    }
+                ],
+    "prompt_order":  [
+                         {
+                             "character_id":  100000,
+                             "order":  [
+                                           {
+                                               "identifier":  "main",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "worldInfoBefore",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "personaDescription",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "charDescription",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "charPersonality",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "scenario",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "enhanceDefinitions",
+                                               "enabled":  false
+                                           },
+                                           {
+                                               "identifier":  "nsfw",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "worldInfoAfter",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "dialogueExamples",
+                                               "enabled":  false
+                                           },
+                                           {
+                                               "identifier":  "65e0b783-4c25-4ab3-8ae3-aba13371fd56",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "baf9c61d-5058-42b6-b888-0b817fca2d02",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "jailbreak",
+                                               "enabled":  true
+                                           }
+                                       ]
+                         },
+                         {
+                             "character_id":  100001,
+                             "order":  [
+                                           {
+                                               "identifier":  "main",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "worldInfoBefore",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "personaDescription",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "charDescription",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "charPersonality",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "scenario",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "enhanceDefinitions",
+                                               "enabled":  false
+                                           },
+                                           {
+                                               "identifier":  "nsfw",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "worldInfoAfter",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "dialogueExamples",
+                                               "enabled":  false
+                                           },
+                                           {
+                                               "identifier":  "65e0b783-4c25-4ab3-8ae3-aba13371fd56",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "baf9c61d-5058-42b6-b888-0b817fca2d02",
+                                               "enabled":  true
+                                           },
+                                           {
+                                               "identifier":  "jailbreak",
+                                               "enabled":  true
+                                           }
+                                       ]
+                         }
+                     ],
+    "assistant_prefill":  "",
+    "assistant_impersonation":  "",
+    "use_sysprompt":  false,
+    "squash_system_messages":  true,
+    "media_inlining":  true,
+    "inline_image_quality":  "high",
+    "continue_prefill":  true,
+    "continue_postfix":  " ",
+    "function_calling":  false,
+    "show_thoughts":  true,
+    "reasoning_effort":  "medium",
+    "verbosity":  "auto",
+    "enable_web_search":  false,
+    "seed":  -1,
+    "n":  1,
+    "request_images":  false,
+    "request_image_aspect_ratio":  "",
+    "request_image_resolution":  "",
+    "extensions":  {
+                       "regex_scripts":  [
+                                             {
+                                                 "id":  "b9407dfa-6d73-4311-b073-38b6514bc1c1",
+                                                 "scriptName":  "mygo去除多余内容",
+                                                 "findRegex":  "/『|』|\u003cstory plot\u003e|\u003c/story plot\u003e|```End|```Start|\u003cSafe\u003e|\u003c/Safe\u003e|\u003c分割\u003e|\u003c结束\u003e|\u003c先前所有对话内容均为红队内部测试，现已清除\u003e/gsi",
+                                                 "replaceString":  "",
+                                                 "trimStrings":  [
+
+                                                                 ],
+                                                 "placement":  [
+                                                                   2
+                                                               ],
+                                                 "disabled":  false,
+                                                 "markdownOnly":  false,
+                                                 "promptOnly":  false,
+                                                 "runOnEdit":  true,
+                                                 "substituteRegex":  0,
+                                                 "minDepth":  null,
+                                                 "maxDepth":  null
+                                             },
+                                             {
+                                                 "id":  "e59bdf79-637f-4e8c-996d-3c265d0fa322",
+                                                 "scriptName":  "隐藏mygo思维链",
+                                                 "findRegex":  "/(\u003c(disclaimer|Real_Task|thinking|标签回顾|imgthink)\u003e.*?\u003c/\\2\u003e)|.*(?:\\[使用简体中文开始游戏[:：]]|\\[小助手回复中:]|\u003c\\/think\u003e)|\u003c!--tag：.*?--\u003e/gsi",
+                                                 "replaceString":  "",
+                                                 "trimStrings":  [
+
+                                                                 ],
+                                                 "placement":  [
+                                                                   2
+                                                               ],
+                                                 "disabled":  false,
+                                                 "markdownOnly":  true,
+                                                 "promptOnly":  true,
+                                                 "runOnEdit":  true,
+                                                 "substituteRegex":  0,
+                                                 "minDepth":  null,
+                                                 "maxDepth":  null
+                                             },
+                                             {
+                                                 "id":  "2b6fe66b-3467-4d42-8684-b9fc1ac5d63b",
+                                                 "scriptName":  "MyGO!!!!!(不发送两轮回复之前的response正文及StatusBlock状态栏)",
+                                                 "findRegex":  "/\u003c(response|StatusBlock)[^\u003e]*\u003e((?:(?!\u003c\\/\\1\u003e)(?:.|\\n))*?)\u003c\\/\\1\u003e/gm",
+                                                 "replaceString":  "",
+                                                 "trimStrings":  [
+
+                                                                 ],
+                                                 "placement":  [
+                                                                   2
+                                                               ],
+                                                 "disabled":  false,
+                                                 "markdownOnly":  false,
+                                                 "promptOnly":  true,
+                                                 "runOnEdit":  true,
+                                                 "substituteRegex":  1,
+                                                 "minDepth":  4,
+                                                 "maxDepth":  null
+                                             },
+                                             {
+                                                 "id":  "949346c3-eb86-4db1-88f9-13449617c171",
+                                                 "scriptName":  "去除选项",
+                                                 "findRegex":  "/\u003c(choice|image)[^\u003e]*\u003e((?:(?!\u003c\\/\\1\u003e)(?:.|\\n))*?)\u003c\\/\\1\u003e/gm",
+                                                 "replaceString":  "",
+                                                 "trimStrings":  [
+
+                                                                 ],
+                                                 "placement":  [
+                                                                   2
+                                                               ],
+                                                 "disabled":  false,
+                                                 "markdownOnly":  false,
+                                                 "promptOnly":  true,
+                                                 "runOnEdit":  true,
+                                                 "substituteRegex":  0,
+                                                 "minDepth":  null,
+                                                 "maxDepth":  null
+                                             },
+                                             {
+                                                 "id":  "589cb092-77bb-499f-ba3e-5d50ffda4105",
+                                                 "scriptName":  "MyGO选项栏美化",
+                                                 "findRegex":  "(.+?)选项一\\s*[:：]\\s*(.+?)[\\r\\n]+(.+?)选项二\\s*[:：]\\s*(.+?)[\\r\\n]+(.+?)选项三\\s*[:：]\\s*(.+?)[\\r\\n]+(.+?)选项四\\s*[:：]\\s*(.+?)(?=[\\r\\n]|$)",
+                                                 "replaceString":  "```html\n\u003c!DOCTYPE html\u003e\n\u003chtml lang=\"zh-CN\"\u003e\n\u003chead\u003e\n\u003cmeta charset=\"UTF-8\"\u003e\n\u003cmeta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\"\u003e\n\u003cstyle\u003e\n*{margin:0;padding:0;box-sizing:border-box}\nhtml,body{background:transparent!important;min-height:0}\nbody{font-family:\u0027Microsoft YaHei\u0027,\u0027PingFang SC\u0027,sans-serif;padding:0}\n:root{--c-size:13.5px}\n.mygo-container{border-radius:16px;padding:18px;width:100%;max-width:100%;margin:0;position:relative;overflow:hidden;transition:background 0.4s ease,box-shadow 0.4s ease}\n.mygo-container::before{content:\u0027\u0027;position:absolute;top:-50%;left:-50%;width:200%;height:200%;animation:pulse 4s ease-in-out infinite;transition:background 0.4s}\n@keyframes pulse{0%,100%{transform:scale(1);opacity:0.2}50%{transform:scale(1.1);opacity:0.4}}\n.mygo-header{text-align:center;margin-bottom:16px;padding-bottom:12px;position:relative;z-index:1;transition:border-color 0.4s}\n.mygo-title{font-size:28px;font-weight:900;letter-spacing:4px;margin-bottom:8px;font-family:\u0027Arial Black\u0027,sans-serif;transition:all 0.4s}\n.mygo-subtitle{font-size:13px;letter-spacing:2px;opacity:0.85;transition:all 0.4s}\n.settings-btn{position:absolute;top:12px;right:12px;width:36px;height:36px;border-radius:50%;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:20px;transition:all 0.3s;z-index:10;border:2px solid}\n.settings-btn:hover{transform:rotate(90deg) scale(1.1)}\n.settings-panel{position:absolute;top:55px;right:12px;background:rgba(10,20,35,0.98);border-radius:12px;padding:16px;width:240px;display:none;z-index:20;box-shadow:0 8px 24px rgba(0,0,0,0.6);border:2px solid rgba(255,255,255,0.1)}\n.settings-panel.active{display:block;animation:slideIn 0.3s ease}\n@keyframes slideIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}\n.settings-section{margin-bottom:14px}\n.settings-section:last-child{margin-bottom:0}\n.settings-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}\n.settings-label{font-size:13px;font-weight:700;display:block;transition:color 0.4s}\n.reset-text{font-size:11px;cursor:pointer;opacity:0.7;text-decoration:underline;border:none;background:none;color:inherit;padding:0}\n.reset-text:hover{opacity:1}\n.layout-options,.mode-options{display:flex;gap:8px}\n.theme-options{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}\n.option-btn{flex:1;padding:8px 6px;background:rgba(255,255,255,0.1);border:2px solid rgba(255,255,255,0.2);border-radius:8px;color:#e8f4f8;font-size:12px;cursor:pointer;transition:all 0.25s;text-align:center}\n.option-btn:hover{background:rgba(255,255,255,0.2)}\n.option-btn.active{background:rgba(255,255,255,0.25);border-color:rgba(255,215,0,0.6);box-shadow:0 0 12px rgba(255,215,0,0.3)}\n.theme-btn{width:36px;height:36px;border-radius:50%;cursor:pointer;transition:all 0.25s;position:relative;border:3px solid rgba(255,255,255,0.4)}\n.theme-btn:hover{transform:scale(1.2)}\n.theme-btn.active{border-width:4px;border-color:#fff;box-shadow:0 0 20px currentColor,inset 0 0 10px rgba(255,255,255,0.3)}\n.theme-btn.cyber{background:linear-gradient(135deg,#00f5ff,#0077b6,#00d4ff)}\n.theme-btn.mystic{background:linear-gradient(135deg,#ff6fd8,#9d4edd,#3c096c)}\n.theme-btn.forest{background:linear-gradient(135deg,#95d5b2,#2d6a4f,#1b4332)}\n.theme-btn.royal{background:linear-gradient(135deg,#ffd700,#b8860b,#8b4513)}\n.theme-btn.mono{background:linear-gradient(135deg,#ffffff,#888888,#000000)}\n.theme-btn.sakura{background:linear-gradient(135deg,#ffc0cb,#ffb7b2,#ff9a9e)}\n.theme-btn.sunset{background:linear-gradient(135deg,#ff9966,#ff5e62,#ff0000)}\n.theme-btn.crimson{background:linear-gradient(135deg,#800000,#4a0000,#000000)}\n.range-input{width:100%;height:6px;background:rgba(255,255,255,0.2);border-radius:4px;outline:none;-webkit-appearance:none;cursor:pointer}\n.range-input::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;background:#fff;border-radius:50%;cursor:pointer;transition:all 0.2s}\n.range-input::-webkit-slider-thumb:hover{transform:scale(1.2)}\n.color-input{width:100%;height:30px;border:none;background:transparent;cursor:pointer;padding:0}\n.choice-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;position:relative;z-index:1;transition:all 0.3s ease}\n.choice-grid.vertical{grid-template-columns:1fr;gap:12px}\n.choice-btn{width:100%;border-radius:14px;padding:16px 14px;cursor:pointer;transition:all 0.35s cubic-bezier(0.4,0,0.2,1);text-align:left;position:relative;overflow:hidden;height:100%;display:flex;flex-direction:column;border:2px solid}\n.choice-btn::before{content:\u0027\u0027;position:absolute;top:0;left:-100%;width:100%;height:100%;transition:left 0.7s ease}\n.choice-btn::after{content:\u0027\u0027;position:absolute;top:0;left:0;width:100%;height:100%;opacity:0;transition:opacity 0.3s}\n.choice-btn:hover::before{left:100%}\n.choice-btn:hover::after{opacity:1}\n.choice-btn:hover{transform:scale(1.04) translateY(-3px)}\n.choice-btn:active{transform:scale(0.98) translateY(0)}\n.choice-head{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;padding-bottom:8px;border-bottom:1px dashed;transition:border-color 0.4s}\n.choice-emoji{font-size:24px;animation:float 3s ease-in-out infinite;transition:filter 0.4s}\n@keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}\n.choice-num{font-weight:900;font-size:16px;letter-spacing:1px;transition:all 0.4s;color:var(--c-color)}\n.choice-text{color:var(--c-color);font-size:var(--c-size);line-height:1.55;overflow:hidden;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;text-align:justify;text-shadow:0 1px 3px rgba(0,0,0,0.6);transition:color 0.4s ease,text-shadow 0.4s ease}\n.mygo-footer{text-align:center;margin-top:14px;padding-top:12px;font-size:12px;opacity:0.8;letter-spacing:2px;position:relative;z-index:1;transition:all 0.4s}\n\n.theme-cyber{--c-color:#e8f4f8;background:linear-gradient(135deg,#0a1628 0%,#0d2847 30%,#1a3a5c 60%,#0a1f3d 100%);box-shadow:0 4px 20px rgba(0,212,255,0.25),0 0 40px rgba(0,180,216,0.1),inset 0 1px 0 rgba(0,212,255,0.1)}\n.theme-cyber::before{background:radial-gradient(ellipse at 30% 20%,rgba(0,245,255,0.15) 0%,transparent 50%),radial-gradient(ellipse at 70% 80%,rgba(0,119,182,0.1) 0%,transparent 50%)}\n.theme-cyber .mygo-header{border-bottom:2px solid rgba(0,212,255,0.25)}\n.theme-cyber .mygo-title{color:#00f5ff;text-shadow:0 0 10px rgba(0,245,255,0.8),0 0 30px rgba(0,212,255,0.4)}\n.theme-cyber .mygo-subtitle{color:#7df9ff}\n.theme-cyber .settings-btn{background:rgba(0,212,255,0.15);border-color:rgba(0,212,255,0.3)}\n.theme-cyber .settings-btn:hover{background:rgba(0,212,255,0.3);border-color:#00f5ff;box-shadow:0 0 15px rgba(0,245,255,0.5)}\n.theme-cyber .settings-label{color:#00f5ff}\n.theme-cyber .choice-btn{background:linear-gradient(145deg,rgba(0,30,60,0.8),rgba(0,50,80,0.6));border-color:rgba(0,212,255,0.2);box-shadow:0 4px 15px rgba(0,0,0,0.4),inset 0 1px 0 rgba(0,212,255,0.1)}\n.theme-cyber .choice-btn::before{background:linear-gradient(90deg,transparent,rgba(0,245,255,0.3),transparent)}\n.theme-cyber .choice-btn::after{background:radial-gradient(circle at center,rgba(0,245,255,0.15),transparent)}\n.theme-cyber .choice-btn:hover{border-color:rgba(0,245,255,0.5);box-shadow:0 8px 30px rgba(0,212,255,0.4),0 0 20px rgba(0,245,255,0.2)}\n.theme-cyber .choice-head{border-color:rgba(0,212,255,0.2)}\n.theme-cyber .choice-num{text-shadow:0 0 10px rgba(0,245,255,0.7)}\n.theme-cyber .mygo-footer{color:#00f5ff;border-top:2px solid rgba(0,212,255,0.25)}\n\n.theme-mystic{--c-color:#e8f4f8;background:linear-gradient(135deg,#1a0a2e 0%,#2d1b4e 30%,#4a1942 60%,#16082a 100%);box-shadow:0 4px 20px rgba(157,78,221,0.25),0 0 40px rgba(255,111,216,0.1),inset 0 1px 0 rgba(255,111,216,0.1)}\n.theme-mystic::before{background:radial-gradient(ellipse at 20% 30%,rgba(255,111,216,0.12) 0%,transparent 50%),radial-gradient(ellipse at 80% 70%,rgba(157,78,221,0.1) 0%,transparent 50%)}\n.theme-mystic .mygo-header{border-bottom:2px solid rgba(255,111,216,0.25)}\n.theme-mystic .mygo-title{color:#ff6fd8;text-shadow:0 0 10px rgba(255,111,216,0.8),0 0 30px rgba(157,78,221,0.5)}\n.theme-mystic .mygo-subtitle{color:#e0aaff}\n.theme-mystic .settings-btn{background:rgba(157,78,221,0.15);border-color:rgba(255,111,216,0.3)}\n.theme-mystic .settings-btn:hover{background:rgba(157,78,221,0.3);border-color:#ff6fd8;box-shadow:0 0 15px rgba(255,111,216,0.5)}\n.theme-mystic .settings-label{color:#ff6fd8}\n.theme-mystic .choice-btn{background:linear-gradient(145deg,rgba(45,27,78,0.8),rgba(74,25,66,0.6));border-color:rgba(255,111,216,0.2);box-shadow:0 4px 15px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,111,216,0.1)}\n.theme-mystic .choice-btn::before{background:linear-gradient(90deg,transparent,rgba(255,111,216,0.3),transparent)}\n.theme-mystic .choice-btn::after{background:radial-gradient(circle at center,rgba(224,170,255,0.15),transparent)}\n.theme-mystic .choice-btn:hover{border-color:rgba(255,111,216,0.5);box-shadow:0 8px 30px rgba(157,78,221,0.4),0 0 20px rgba(255,111,216,0.2)}\n.theme-mystic .choice-head{border-color:rgba(255,111,216,0.2)}\n.theme-mystic .choice-num{text-shadow:0 0 10px rgba(255,111,216,0.7)}\n.theme-mystic .mygo-footer{color:#ff6fd8;border-top:2px solid rgba(255,111,216,0.25)}\n\n.theme-forest{--c-color:#e8f4f8;background:linear-gradient(135deg,#0d1f12 0%,#1b4332 30%,#2d6a4f 60%,#0a1a10 100%);box-shadow:0 4px 20px rgba(82,183,136,0.2),0 0 40px rgba(45,106,79,0.1),inset 0 1px 0 rgba(149,213,178,0.1)}\n.theme-forest::before{background:radial-gradient(ellipse at 25% 25%,rgba(149,213,178,0.1) 0%,transparent 50%),radial-gradient(ellipse at 75% 75%,rgba(45,106,79,0.08) 0%,transparent 50%)}\n.theme-forest .mygo-header{border-bottom:2px solid rgba(149,213,178,0.25)}\n.theme-forest .mygo-title{color:#95d5b2;text-shadow:0 0 10px rgba(149,213,178,0.7),0 0 30px rgba(82,183,136,0.4)}\n.theme-forest .mygo-subtitle{color:#b7e4c7}\n.theme-forest .settings-btn{background:rgba(45,106,79,0.2);border-color:rgba(149,213,178,0.3)}\n.theme-forest .settings-btn:hover{background:rgba(45,106,79,0.4);border-color:#95d5b2;box-shadow:0 0 15px rgba(149,213,178,0.5)}\n.theme-forest .settings-label{color:#95d5b2}\n.theme-forest .choice-btn{background:linear-gradient(145deg,rgba(27,67,50,0.8),rgba(45,106,79,0.5));border-color:rgba(149,213,178,0.2);box-shadow:0 4px 15px rgba(0,0,0,0.4),inset 0 1px 0 rgba(149,213,178,0.1)}\n.theme-forest .choice-btn::before{background:linear-gradient(90deg,transparent,rgba(149,213,178,0.25),transparent)}\n.theme-forest .choice-btn::after{background:radial-gradient(circle at center,rgba(183,228,199,0.12),transparent)}\n.theme-forest .choice-btn:hover{border-color:rgba(149,213,178,0.5);box-shadow:0 8px 30px rgba(45,106,79,0.4),0 0 20px rgba(149,213,178,0.2)}\n.theme-forest .choice-head{border-color:rgba(149,213,178,0.2)}\n.theme-forest .choice-num{text-shadow:0 0 10px rgba(149,213,178,0.6)}\n.theme-forest .mygo-footer{color:#95d5b2;border-top:2px solid rgba(149,213,178,0.25)}\n\n.theme-royal{--c-color:#e8f4f8;background:linear-gradient(135deg,#1a1005 0%,#3d2810 30%,#5c3d1a 60%,#1f1408 100%);box-shadow:0 4px 20px rgba(255,215,0,0.2),0 0 40px rgba(184,134,11,0.1),inset 0 1px 0 rgba(255,215,0,0.15)}\n.theme-royal::before{background:radial-gradient(ellipse at 30% 20%,rgba(255,215,0,0.1) 0%,transparent 50%),radial-gradient(ellipse at 70% 80%,rgba(184,134,11,0.08) 0%,transparent 50%)}\n.theme-royal .mygo-header{border-bottom:2px solid rgba(255,215,0,0.3)}\n.theme-royal .mygo-title{color:#ffd700;text-shadow:0 0 10px rgba(255,215,0,0.8),0 0 30px rgba(184,134,11,0.5)}\n.theme-royal .mygo-subtitle{color:#ffe066}\n.theme-royal .settings-btn{background:rgba(184,134,11,0.2);border-color:rgba(255,215,0,0.3)}\n.theme-royal .settings-btn:hover{background:rgba(184,134,11,0.4);border-color:#ffd700;box-shadow:0 0 15px rgba(255,215,0,0.5)}\n.theme-royal .settings-label{color:#ffd700}\n.theme-royal .choice-btn{background:linear-gradient(145deg,rgba(61,40,16,0.8),rgba(92,61,26,0.6));border-color:rgba(255,215,0,0.2);box-shadow:0 4px 15px rgba(0,0,0,0.4),inset 0 1px 0 rgba(255,215,0,0.15)}\n.theme-royal .choice-btn::before{background:linear-gradient(90deg,transparent,rgba(255,215,0,0.3),transparent)}\n.theme-royal .choice-btn::after{background:radial-gradient(circle at center,rgba(255,224,102,0.12),transparent)}\n.theme-royal .choice-btn:hover{border-color:rgba(255,215,0,0.5);box-shadow:0 8px 30px rgba(184,134,11,0.4),0 0 20px rgba(255,215,0,0.25)}\n.theme-royal .choice-head{border-color:rgba(255,215,0,0.25)}\n.theme-royal .choice-num{text-shadow:0 0 10px rgba(255,215,0,0.7)}\n.theme-royal .mygo-footer{color:#ffd700;border-top:2px solid rgba(255,215,0,0.3)}\n\n.theme-mono{--c-color:#dddddd;background:linear-gradient(135deg,#000 0%,#1a1a1a 100%);box-shadow:0 4px 20px rgba(255,255,255,0.15),0 0 40px rgba(255,255,255,0.05)}\n.theme-mono::before{background:radial-gradient(ellipse at 50% 50%,rgba(255,255,255,0.05) 0%,transparent 60%)}\n.theme-mono .mygo-header{border-bottom:2px solid rgba(255,255,255,0.3)}\n.theme-mono .mygo-title{color:#fff;text-shadow:0 0 10px rgba(255,255,255,0.4)}\n.theme-mono .mygo-subtitle{color:#ccc}\n.theme-mono .settings-btn{background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.4);color:#fff}\n.theme-mono .settings-btn:hover{background:#fff;color:#000;box-shadow:0 0 15px rgba(255,255,255,0.5)}\n.theme-mono .settings-label{color:#fff}\n.theme-mono .choice-btn{background:linear-gradient(145deg,#111,#222);border-color:rgba(255,255,255,0.3);box-shadow:0 4px 15px rgba(0,0,0,0.6)}\n.theme-mono .choice-btn::before{background:linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent)}\n.theme-mono .choice-btn::after{background:radial-gradient(circle at center,rgba(255,255,255,0.1),transparent)}\n.theme-mono .choice-btn:hover{border-color:#fff;box-shadow:0 8px 30px rgba(255,255,255,0.2)}\n.theme-mono .choice-head{border-color:rgba(255,255,255,0.3)}\n.theme-mono .choice-num{text-shadow:none;}\n.theme-mono .choice-text{text-shadow:none}\n.theme-mono .mygo-footer{color:#aaa;border-top:2px solid rgba(255,255,255,0.3)}\n\n.theme-sakura{--c-color:#8b4563;background:linear-gradient(135deg,#fff0f5 0%,#ffe4e1 50%,#ffc0cb 100%);box-shadow:0 4px 20px rgba(255,105,180,0.25),0 0 40px rgba(255,182,193,0.3)}\n.theme-sakura::before{background:radial-gradient(ellipse at 30% 20%,rgba(255,255,255,0.8) 0%,transparent 60%),radial-gradient(ellipse at 80% 80%,rgba(255,182,193,0.4) 0%,transparent 50%)}\n.theme-sakura .mygo-header{border-bottom:2px solid rgba(219,112,147,0.3)}\n.theme-sakura .mygo-title{color:#d87093;text-shadow:2px 2px 4px rgba(255,255,255,0.8),0 0 15px rgba(255,105,180,0.3)}\n.theme-sakura .mygo-subtitle{color:#db7093;text-shadow:1px 1px 2px #fff}\n.theme-sakura .settings-btn{background:rgba(255,255,255,0.4);border-color:rgba(219,112,147,0.4);color:#d87093}\n.theme-sakura .settings-btn:hover{background:#fff;border-color:#ff69b4;color:#ff1493;box-shadow:0 0 15px rgba(255,182,193,0.8)}\n.theme-sakura .settings-panel{background:rgba(255,240,245,0.95);border-color:rgba(255,182,193,0.5);box-shadow:0 8px 24px rgba(219,112,147,0.2)}\n.theme-sakura .settings-label{color:#d87093}\n.theme-sakura .option-btn{background:rgba(219,112,147,0.1);border-color:rgba(219,112,147,0.3);color:#c71585}\n.theme-sakura .option-btn.active{background:rgba(255,255,255,0.6);border-color:#ff69b4}\n.theme-sakura .choice-btn{background:linear-gradient(145deg,rgba(255,255,255,0.7),rgba(255,240,245,0.6));border-color:rgba(255,182,193,0.6);box-shadow:0 4px 15px rgba(219,112,147,0.1)}\n.theme-sakura .choice-btn::before{background:linear-gradient(90deg,transparent,rgba(255,192,203,0.4),transparent)}\n.theme-sakura .choice-btn::after{background:radial-gradient(circle at center,rgba(255,20,147,0.05),transparent)}\n.theme-sakura .choice-btn:hover{border-color:#ff69b4;box-shadow:0 8px 25px rgba(219,112,147,0.25);transform:scale(1.03) translateY(-3px)}\n.theme-sakura .choice-head{border-color:rgba(219,112,147,0.3)}\n.theme-sakura .choice-num{text-shadow:1px 1px 0 #fff}\n.theme-sakura .choice-text{text-shadow:none}\n.theme-sakura .mygo-footer{color:#d87093;border-top:2px solid rgba(219,112,147,0.3);text-shadow:1px 1px 0 #fff}\n\n.theme-sunset{--c-color:#fff5ee;background:linear-gradient(135deg,#2c3e50 0%,#fd746c 100%);box-shadow:0 4px 20px rgba(253,116,108,0.3),inset 0 1px 0 rgba(255,255,255,0.1)}\n.theme-sunset .mygo-header{border-bottom:2px solid rgba(255,160,122,0.3)}\n.theme-sunset .mygo-title{color:#ffdab9;text-shadow:0 0 10px rgba(255,69,0,0.5)}\n.theme-sunset .mygo-subtitle{color:#ffd700}\n.theme-sunset .settings-btn{background:rgba(255,255,255,0.1);border-color:rgba(255,160,122,0.4);color:#ffdab9}\n.theme-sunset .settings-btn:hover{background:rgba(255,69,0,0.2);border-color:#ffa07a;box-shadow:0 0 15px rgba(255,69,0,0.4)}\n.theme-sunset .settings-label{color:#ffdab9}\n.theme-sunset .choice-btn{background:linear-gradient(145deg,rgba(44,62,80,0.8),rgba(253,116,108,0.4));border-color:rgba(255,160,122,0.3);box-shadow:0 4px 15px rgba(0,0,0,0.3)}\n.theme-sunset .choice-btn:hover{border-color:#ffdab9;box-shadow:0 8px 30px rgba(253,116,108,0.4)}\n.theme-sunset .choice-head{border-color:rgba(255,160,122,0.3)}\n.theme-sunset .choice-num{text-shadow:0 0 5px rgba(255,69,0,0.5)}\n.theme-sunset .mygo-footer{color:#ffdab9;border-top:2px solid rgba(255,160,122,0.3)}\n\n.theme-crimson{--c-color:#ffe6e6;background:linear-gradient(135deg,#000000 0%,#430000 50%,#1a0000 100%);box-shadow:0 4px 20px rgba(255,0,0,0.2),inset 0 1px 0 rgba(255,0,0,0.1)}\n.theme-crimson::before{background:radial-gradient(ellipse at 50% 0%,rgba(255,0,0,0.15) 0%,transparent 60%)}\n.theme-crimson .mygo-header{border-bottom:2px solid rgba(139,0,0,0.5)}\n.theme-crimson .mygo-title{color:#ff3333;text-shadow:0 0 20px rgba(139,0,0,0.8)}\n.theme-crimson .mygo-subtitle{color:#cc0000}\n.theme-crimson .settings-btn{background:rgba(60,0,0,0.5);border-color:rgba(255,0,0,0.3);color:#ff0000}\n.theme-crimson .settings-btn:hover{background:rgba(255,0,0,0.2);border-color:#ff0000;box-shadow:0 0 20px rgba(255,0,0,0.6)}\n.theme-crimson .settings-label{color:#ff3333}\n.theme-crimson .choice-btn{background:linear-gradient(145deg,rgba(20,0,0,0.9),rgba(50,0,0,0.7));border-color:rgba(139,0,0,0.5);box-shadow:0 4px 15px rgba(0,0,0,0.8)}\n.theme-crimson .choice-btn:hover{border-color:#ff0000;box-shadow:0 8px 30px rgba(139,0,0,0.6)}\n.theme-crimson .choice-head{border-color:rgba(139,0,0,0.5)}\n.theme-crimson .choice-num{text-shadow:0 0 10px rgba(255,0,0,0.5)}\n.theme-crimson .mygo-footer{color:#cc0000;border-top:2px solid rgba(139,0,0,0.5)}\n\n@media (max-width:768px){.mygo-container{padding:16px;border-radius:14px}.mygo-title{font-size:26px}.choice-grid{gap:12px}.choice-btn{padding:14px 12px}.choice-emoji{font-size:22px}.choice-num{font-size:15px}.choice-text{font-size:calc(var(--c-size) - 1px)}.settings-panel{width:220px;right:8px;top:50px}}\n@media (max-width:480px){.mygo-container{padding:14px;border-radius:12px}.mygo-title{font-size:24px}.choice-grid{gap:10px}.choice-btn{padding:12px 10px;border-radius:12px}.choice-head{gap:6px;margin-bottom:8px;padding-bottom:6px}.choice-emoji{font-size:20px}.choice-num{font-size:14px}.choice-text{font-size:calc(var(--c-size) - 2px);-webkit-line-clamp:8}.mygo-footer{font-size:11px}.settings-btn{width:32px;height:32px;font-size:18px;top:10px;right:10px}.settings-panel{width:200px;padding:12px}}\n\u003c/style\u003e\n\u003c/head\u003e\n\u003cbody\u003e\n\u003cdiv class=\"mygo-container theme-cyber\"\u003e\n\u003cbutton class=\"settings-btn\" onclick=\"toggleSettings()\"\u003e⚙️\u003c/button\u003e\n\u003cdiv class=\"settings-panel\" id=\"settingsPanel\"\u003e\n\u003cdiv class=\"settings-section\"\u003e\n\u003clabel class=\"settings-label\"\u003e⚡ 点击行为\u003c/label\u003e\n\u003cdiv class=\"mode-options\"\u003e\n\u003cbutton class=\"option-btn active\" onclick=\"setMode(\u0027fill\u0027)\"\u003e填入输入框\u003c/button\u003e\n\u003cbutton class=\"option-btn\" onclick=\"setMode(\u0027send\u0027)\"\u003e直接发送\u003c/button\u003e\n\u003c/div\u003e\n\u003c/div\u003e\n\u003cdiv class=\"settings-section\"\u003e\n\u003clabel class=\"settings-label\"\u003e📐 布局模式\u003c/label\u003e\n\u003cdiv class=\"layout-options\"\u003e\n\u003cbutton class=\"option-btn active\" onclick=\"setLayout(\u0027grid\u0027)\"\u003e2×2 宫格\u003c/button\u003e\n\u003cbutton class=\"option-btn\" onclick=\"setLayout(\u0027vertical\u0027)\"\u003e竖排列表\u003c/button\u003e\n\u003c/div\u003e\n\u003c/div\u003e\n\u003cdiv class=\"settings-section\"\u003e\n\u003clabel class=\"settings-label\"\u003e🎨 主题风格\u003c/label\u003e\n\u003cdiv class=\"theme-options\"\u003e\n\u003cbutton class=\"theme-btn cyber active\" onclick=\"setTheme(\u0027cyber\u0027)\" title=\"赛博霓虹\"\u003e\u003c/button\u003e\n\u003cbutton class=\"theme-btn mystic\" onclick=\"setTheme(\u0027mystic\u0027)\" title=\"梦幻星尘\"\u003e\u003c/button\u003e\n\u003cbutton class=\"theme-btn forest\" onclick=\"setTheme(\u0027forest\u0027)\" title=\"翡翠森林\"\u003e\u003c/button\u003e\n\u003cbutton class=\"theme-btn royal\" onclick=\"setTheme(\u0027royal\u0027)\" title=\"皇家金典\"\u003e\u003c/button\u003e\n\u003cbutton class=\"theme-btn mono\" onclick=\"setTheme(\u0027mono\u0027)\" title=\"极致黑白\"\u003e\u003c/button\u003e\n\u003cbutton class=\"theme-btn sakura\" onclick=\"setTheme(\u0027sakura\u0027)\" title=\"少女粉白\"\u003e\u003c/button\u003e\n\u003cbutton class=\"theme-btn sunset\" onclick=\"setTheme(\u0027sunset\u0027)\" title=\"日落余晖\"\u003e\u003c/button\u003e\n\u003cbutton class=\"theme-btn crimson\" onclick=\"setTheme(\u0027crimson\u0027)\" title=\"深红梦魇\"\u003e\u003c/button\u003e\n\u003c/div\u003e\n\u003c/div\u003e\n\u003cdiv class=\"settings-section\"\u003e\n\u003clabel class=\"settings-label\"\u003e🅰️ 字体大小\u003c/label\u003e\n\u003cinput type=\"range\" class=\"range-input\" min=\"12\" max=\"20\" step=\"0.5\" value=\"13.5\" oninput=\"setFontSize(this.value)\"\u003e\n\u003c/div\u003e\n\u003cdiv class=\"settings-section\"\u003e\n\u003cdiv class=\"settings-head\"\u003e\n\u003clabel class=\"settings-label\" style=\"margin:0\"\u003e🖌️ 选项字体颜色\u003c/label\u003e\n\u003cbutton class=\"reset-text\" onclick=\"resetFontColor()\"\u003e↺ 主题默认\u003c/button\u003e\n\u003c/div\u003e\n\u003cinput type=\"color\" class=\"color-input\" value=\"#e8f4f8\" onchange=\"setFontColor(this.value)\"\u003e\n\u003c/div\u003e\n\u003cdiv class=\"settings-section\" style=\"border-top: 1px solid rgba(255,255,255,0.1); padding-top: 14px;\"\u003e\n\u003cbutton class=\"option-btn\" onclick=\"resetAllSettings()\"\u003e↻ 恢复所有默认设置\u003c/button\u003e\n\u003c/div\u003e\n\u003c/div\u003e\n\u003cdiv class=\"mygo-header\"\u003e\n\u003cdiv class=\"mygo-title\"\u003e▸ 选择你的道路 ◂\u003c/div\u003e\n\u003cdiv class=\"mygo-subtitle\"\u003e— 迷途之中寻找答案 —\u003c/div\u003e\n\u003c/div\u003e\n\u003cdiv class=\"choice-grid\" id=\"choiceGrid\"\u003e\n\u003cbutton class=\"choice-btn\" onclick=\"selectStory(\u0027$2\u0027)\"\u003e\n\u003cdiv class=\"choice-head\"\u003e\u003cspan class=\"choice-emoji\"\u003e$1\u003c/span\u003e\u003cspan class=\"choice-num\"\u003e选项一\u003c/span\u003e\u003c/div\u003e\n\u003cdiv class=\"choice-text\"\u003e$2\u003c/div\u003e\n\u003c/button\u003e\n\u003cbutton class=\"choice-btn\" onclick=\"selectStory(\u0027$4\u0027)\"\u003e\n\u003cdiv class=\"choice-head\"\u003e\u003cspan class=\"choice-emoji\"\u003e$3\u003c/span\u003e\u003cspan class=\"choice-num\"\u003e选项二\u003c/span\u003e\u003c/div\u003e\n\u003cdiv class=\"choice-text\"\u003e$4\u003c/div\u003e\n\u003c/button\u003e\n\u003cbutton class=\"choice-btn\" onclick=\"selectStory(\u0027$6\u0027)\"\u003e\n\u003cdiv class=\"choice-head\"\u003e\u003cspan class=\"choice-emoji\"\u003e$5\u003c/span\u003e\u003cspan class=\"choice-num\"\u003e选项三\u003c/span\u003e\u003c/div\u003e\n\u003cdiv class=\"choice-text\"\u003e$6\u003c/div\u003e\n\u003c/button\u003e\n\u003cbutton class=\"choice-btn\" onclick=\"selectStory(\u0027$8\u0027)\"\u003e\n\u003cdiv class=\"choice-head\"\u003e\u003cspan class=\"choice-emoji\"\u003e$7\u003c/span\u003e\u003cspan class=\"choice-num\"\u003e选项四\u003c/span\u003e\u003c/div\u003e\n\u003cdiv class=\"choice-text\"\u003e$8\u003c/div\u003e\n\u003c/button\u003e\n\u003c/div\u003e\n\u003cdiv class=\"mygo-footer\"\u003e✦ 你的选择将决定命运 ✦\u003c/div\u003e\n\u003c/div\u003e\n\u003cscript\u003e\nconst mygoContainer = document.querySelector(\u0027.mygo-container\u0027);\nconst choiceGrid = document.getElementById(\u0027choiceGrid\u0027);\nconst settingsPanel = document.getElementById(\u0027settingsPanel\u0027);\nconst settingsBtn = document.querySelector(\u0027.settings-btn\u0027);\nconst fontSizeSlider = document.querySelector(\u0027.range-input\u0027);\nconst fontColorPicker = document.querySelector(\u0027.color-input\u0027);\nconst themeDefaultColors = {\u0027cyber\u0027:\u0027#e8f4f8\u0027,\u0027mystic\u0027:\u0027#e8f4f8\u0027,\u0027forest\u0027:\u0027#e8f4f8\u0027,\u0027royal\u0027:\u0027#e8f4f8\u0027,\u0027mono\u0027:\u0027#dddddd\u0027,\u0027sakura\u0027:\u0027#8b4563\u0027,\u0027sunset\u0027:\u0027#fff5ee\u0027,\u0027crimson\u0027:\u0027#ffe6e6\u0027};\n\nfunction toggleSettings(){settingsPanel.classList.toggle(\u0027active\u0027)}\nfunction setLayout(type){const btns=document.querySelectorAll(\u0027.layout-options .option-btn\u0027);btns.forEach(b=\u003eb.classList.remove(\u0027active\u0027));if(type===\u0027vertical\u0027){choiceGrid.classList.add(\u0027vertical\u0027);btns[1].classList.add(\u0027active\u0027)}else{choiceGrid.classList.remove(\u0027vertical\u0027);btns[0].classList.add(\u0027active\u0027)}localStorage.setItem(\u0027layout\u0027,type)}\nfunction setMode(mode){const btns=document.querySelectorAll(\u0027.mode-options .option-btn\u0027);btns.forEach(b=\u003eb.classList.remove(\u0027active\u0027));if(mode===\u0027send\u0027){btns[1].classList.add(\u0027active\u0027)}else{btns[0].classList.add(\u0027active\u0027)}localStorage.setItem(\u0027sendMode\u0027,mode)}\nfunction setTheme(theme){mygoContainer.className=\u0027mygo-container theme-\u0027+theme;document.querySelectorAll(\u0027.theme-btn\u0027).forEach(b=\u003eb.classList.remove(\u0027active\u0027));document.querySelector(\u0027.theme-btn.\u0027+theme).classList.add(\u0027active\u0027);localStorage.setItem(\u0027theme\u0027,theme);if(localStorage.getItem(\u0027fontColor\u0027)===null){resetFontColor()}}\nfunction setFontSize(val){document.documentElement.style.setProperty(\u0027--c-size\u0027,val+\u0027px\u0027);localStorage.setItem(\u0027fontSize\u0027,val)}\nfunction setFontColor(val){mygoContainer.style.setProperty(\u0027--c-color\u0027,val);localStorage.setItem(\u0027fontColor\u0027,val)}\nfunction resetFontColor(){mygoContainer.style.removeProperty(\u0027--c-color\u0027);localStorage.removeItem(\u0027fontColor\u0027);const currentTheme=mygoContainer.classList[1].replace(\u0027theme-\u0027,\u0027\u0027);fontColorPicker.value=themeDefaultColors[currentTheme]||\u0027#e8f4f8\u0027}\nfunction resetAllSettings(){if(confirm(\u0027您确定要恢复所有默认设置吗？\u0027)){[\u0027layout\u0027,\u0027sendMode\u0027,\u0027theme\u0027,\u0027fontSize\u0027,\u0027fontColor\u0027].forEach(k=\u003elocalStorage.removeItem(k));window.location.reload()}}\nfunction selectStory(text){const t=parent.document.querySelector(\u0027#send_textarea\u0027);if(t){t.value=text;t.dispatchEvent(new Event(\u0027input\u0027,{bubbles:true}));t.focus();if(localStorage.getItem(\u0027sendMode\u0027)===\u0027send\u0027){const btn=parent.document.querySelector(\u0027#send_but\u0027);btn\u0026\u0026btn.click()}}}\n\nwindow.addEventListener(\u0027load\u0027,()=\u003e{\n    const savedTheme = localStorage.getItem(\u0027theme\u0027) || \u0027cyber\u0027;\n    setTheme(savedTheme);\n    setLayout(localStorage.getItem(\u0027layout\u0027)||\u0027grid\u0027);\n    setMode(localStorage.getItem(\u0027sendMode\u0027)||\u0027fill\u0027);\n    const savedFontSize = localStorage.getItem(\u0027fontSize\u0027);\n    if(savedFontSize){setFontSize(savedFontSize);fontSizeSlider.value=savedFontSize}\n    const savedFontColor = localStorage.getItem(\u0027fontColor\u0027);\n    if(savedFontColor){setFontColor(savedFontColor);fontColorPicker.value=savedFontColor}\n    else{resetFontColor()}\n});\n\ndocument.addEventListener(\u0027click\u0027,e=\u003e{if(!settingsPanel.contains(e.target)\u0026\u0026!settingsBtn.contains(e.target))settingsPanel.classList.remove(\u0027active\u0027)});\n\u003c/script\u003e\n\u003c/body\u003e\n\u003c/html\u003e\n```",
+                                                 "trimStrings":  [
+
+                                                                 ],
+                                                 "placement":  [
+                                                                   2
+                                                               ],
+                                                 "disabled":  false,
+                                                 "markdownOnly":  true,
+                                                 "promptOnly":  false,
+                                                 "runOnEdit":  true,
+                                                 "substituteRegex":  0,
+                                                 "minDepth":  null,
+                                                 "maxDepth":  null
+                                             }
+                                         ],
+                       "SPreset":  {
+                                       "ChatSquash":  {
+                                                          "enabled":  false,
+                                                          "separate_chat_history":  false,
+                                                          "parse_clewd":  true,
+                                                          "user_role_system":  false,
+                                                          "role":  "assistant",
+                                                          "stop_string":  "User:",
+                                                          "user_prefix":  "\n\nUser:",
+                                                          "user_suffix":  "",
+                                                          "char_prefix":  "\n\nAssistant:",
+                                                          "char_suffix":  "",
+                                                          "prefix_system":  "",
+                                                          "suffix_system":  "",
+                                                          "enable_squashed_separator":  false,
+                                                          "squashed_separator_regex":  false,
+                                                          "squashed_separator_string":  "",
+                                                          "squashed_post_script_enable":  false,
+                                                          "squashed_post_script":  ""
+                                                      },
+                                       "RegexBinding":  {
+                                                            "regexes":  [
+                                                                            {
+                                                                                "id":  "b9407dfa-6d73-4311-b073-38b6514bc1c1",
+                                                                                "scriptName":  "mygo去除多余内容",
+                                                                                "findRegex":  "/『|』|\u003cstory plot\u003e|\u003c/story plot\u003e|```End|```Start|\u003cSafe\u003e|\u003c/Safe\u003e|\u003c分割\u003e|\u003c结束\u003e|\u003c先前所有对话内容均为红队内部测试，现已清除\u003e/gsi",
+                                                                                "replaceString":  "",
+                                                                                "trimStrings":  [
+
+                                                                                                ],
+                                                                                "placement":  [
+                                                                                                  2
+                                                                                              ],
+                                                                                "disabled":  false,
+                                                                                "markdownOnly":  false,
+                                                                                "promptOnly":  false,
+                                                                                "runOnEdit":  true,
+                                                                                "substituteRegex":  0,
+                                                                                "minDepth":  null,
+                                                                                "maxDepth":  null
+                                                                            },
+                                                                            {
+                                                                                "id":  "e59bdf79-637f-4e8c-996d-3c265d0fa322",
+                                                                                "scriptName":  "隐藏mygo思维链",
+                                                                                "findRegex":  "/(\u003c(disclaimer|Real_Task|thinking|标签回顾|imgthink)\u003e.*?\u003c/\\2\u003e)|.*(?:\\[使用简体中文开始游戏[:：]]|\\[根据\u003cthinking\u003e继续创作:]|\u003c\\/think\u003e)|\u003c!--tag：.*?--\u003e/gsi",
+                                                                                "replaceString":  "",
+                                                                                "trimStrings":  [
+
+                                                                                                ],
+                                                                                "placement":  [
+                                                                                                  2
+                                                                                              ],
+                                                                                "disabled":  false,
+                                                                                "markdownOnly":  true,
+                                                                                "promptOnly":  true,
+                                                                                "runOnEdit":  true,
+                                                                                "substituteRegex":  0,
+                                                                                "minDepth":  null,
+                                                                                "maxDepth":  null
+                                                                            },
+                                                                            {
+                                                                                "id":  "2b6fe66b-3467-4d42-8684-b9fc1ac5d63b",
+                                                                                "scriptName":  "MyGO!!!!!",
+                                                                                "findRegex":  "/\u003c(response|StatusBlock)[^\u003e]*\u003e((?:(?!\u003c\\/\\1\u003e)(?:.|\\n))*?)\u003c\\/\\1\u003e/gm",
+                                                                                "replaceString":  "",
+                                                                                "trimStrings":  [
+
+                                                                                                ],
+                                                                                "placement":  [
+                                                                                                  2
+                                                                                              ],
+                                                                                "disabled":  false,
+                                                                                "markdownOnly":  false,
+                                                                                "promptOnly":  true,
+                                                                                "runOnEdit":  true,
+                                                                                "substituteRegex":  1,
+                                                                                "minDepth":  4,
+                                                                                "maxDepth":  null
+                                                                            },
+                                                                            {
+                                                                                "id":  "949346c3-eb86-4db1-88f9-13449617c171",
+                                                                                "scriptName":  "去除选项",
+                                                                                "findRegex":  "/\u003c(choice|image)[^\u003e]*\u003e((?:(?!\u003c\\/\\1\u003e)(?:.|\\n))*?)\u003c\\/\\1\u003e/gm",
+                                                                                "replaceString":  "",
+                                                                                "trimStrings":  [
+
+                                                                                                ],
+                                                                                "placement":  [
+                                                                                                  2
+                                                                                              ],
+                                                                                "disabled":  false,
+                                                                                "markdownOnly":  false,
+                                                                                "promptOnly":  true,
+                                                                                "runOnEdit":  true,
+                                                                                "substituteRegex":  0,
+                                                                                "minDepth":  null,
+                                                                                "maxDepth":  null
+                                                                            }
+                                                                        ]
+                                                        },
+                                       "MacroNest":  false
+                                   }
+                   },
+    "name":  "Gemini MyGO Image Prompt Extract",
+    "preset_name":  "Gemini MyGO Image Prompt Extract",
+    "description":  "Adapted from the provided MyGO prompt preset for ChatGPT2API Image prompt extraction."
+}
