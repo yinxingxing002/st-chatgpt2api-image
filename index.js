@@ -40,7 +40,7 @@ const MESSAGE_INLINE_SLOT_SELECTOR = '.st-chatgpt2api-image-inline-slot';
 const MESSAGE_INLINE_SLOT_ACTIONS_SELECTOR = '.st-chatgpt2api-image-inline-slot-actions';
 const MESSAGE_INLINE_SLOT_MEDIA_SELECTOR = '.st-chatgpt2api-image-inline-slot-media';
 const MEDIA_REFRESH_RETRY_DELAYS = [0, 80, 220, 500, 1200, 2400];
-const DEFAULT_TAVERN_IMAGE_PROXY_BASE = '/api/chatgpt2api';
+const DEFAULT_TAVERN_CORS_PROXY_BASE = '/proxy';
 const TOAST_TITLE = 'ChatGPT2API 生图';
 const STATUS_TITLES = {
     info: '准备就绪',
@@ -382,6 +382,15 @@ function buildOpenAiCompatibleEndpointUrl(baseUrl, endpointPath) {
     return `${normalizedBaseUrl}/v1${normalizedEndpointPath}`;
 }
 
+function buildSillyTavernCorsProxyUrl(targetUrl) {
+    const normalizedTargetUrl = normalizeUrl(targetUrl);
+    if (!normalizedTargetUrl) {
+        return '';
+    }
+
+    return `${DEFAULT_TAVERN_CORS_PROXY_BASE}/${encodeURIComponent(normalizedTargetUrl)}`;
+}
+
 function isTavernConnectionMode(settings = ensureSettings()) {
     return String(settings.connection_mode || 'browser') === 'tavern';
 }
@@ -470,7 +479,7 @@ function getConnectionModeHint(settings = ensureSettings()) {
             return '酒馆模式下，当前提示词接口地址与酒馆主 API 的自定义兼容 OpenAI 配置一致。扩展会直接复用酒馆当前这条 custom 连接链去拉模型和生成提示词。';
         }
 
-        return '酒馆模式下，提示词接口会优先借助 SillyTavern 后端代理；如果你填的是同源相对路径，则会直接走当前酒馆域名。生图接口建议优先填写同源代理路径，例如 /api/chatgpt2api/v1 或 /api/v1。';
+        return '酒馆模式下，提示词接口会优先借助 SillyTavern 后端代理；生图接口会优先尝试 SillyTavern 自带的 /proxy 通用代理，再在必要时回退到直连。HTTPS 云酒馆里如果图片接口还是 HTTP，请确保服务器已启用 enableCorsProxy。';
     }
 
     return '浏览器模式会在前端直接请求你填写的接口地址。目标接口需要允许当前页面访问，并且在 HTTPS 酒馆里应优先使用 HTTPS 接口。';
@@ -751,6 +760,10 @@ function buildFriendlyApiErrorMessage(rawMessage, response) {
         return '接口判定当前内容可能过于敏感，已被安全策略拦截。';
     }
 
+    if (/cors proxy is disabled/i.test(normalized)) {
+        return '当前酒馆尚未启用内置 CORS 代理。请在 SillyTavern 的 config.yaml 中开启 enableCorsProxy，或改用支持 HTTPS + CORS 的接口。';
+    }
+
     if (normalized) {
         return normalized;
     }
@@ -778,7 +791,7 @@ function buildFriendlyFetchFailureMessage(url, error) {
 
     if (pageProtocol === 'https:' && targetProtocol === 'http:') {
         if (isTavernConnectionMode()) {
-            return `当前酒馆页面使用 HTTPS，但接口地址是 HTTP（${targetHost || resolvedTarget}），浏览器已拦截该请求。请改用同源代理路径，例如 ${DEFAULT_TAVERN_IMAGE_PROXY_BASE} 或其他站内反向代理路径。`;
+            return `当前酒馆页面使用 HTTPS，但接口地址是 HTTP（${targetHost || resolvedTarget}），浏览器已拦截该请求。请切换到酒馆模式，并确保 SillyTavern 已启用内置 CORS 代理（enableCorsProxy）。`;
         }
 
         return `当前酒馆页面使用 HTTPS，但接口地址是 HTTP（${targetHost || resolvedTarget}），浏览器已拦截该请求。请把接口换成 HTTPS，或通过反向代理/酒馆后端中转。`;
@@ -797,27 +810,35 @@ function buildFriendlyFetchFailureMessage(url, error) {
 
 function shouldPreferTavernImageProxy(settings = ensureSettings()) {
     return isTavernConnectionMode(settings)
-        && String(window.location?.protocol || '').toLowerCase() === 'https:'
         && isAbsoluteHttpUrl(settings.image_api_url);
 }
 
 function getImageApiBaseCandidates(settings = ensureSettings()) {
-    const candidates = [];
-
-    if (shouldPreferTavernImageProxy(settings)) {
-        candidates.push(DEFAULT_TAVERN_IMAGE_PROXY_BASE);
+    const normalizedBaseUrl = normalizeUrl(settings.image_api_url);
+    if (!normalizedBaseUrl) {
+        return [];
     }
 
-    candidates.push(settings.image_api_url);
-    return uniqueStrings(candidates.map(item => normalizeUrl(item)).filter(Boolean));
+    return [normalizedBaseUrl];
 }
 
 function getImageApiEndpointCandidates(settings = ensureSettings(), endpointPath = '/images/generations') {
-    return uniqueStrings(
+    const directEndpoints = uniqueStrings(
         getImageApiBaseCandidates(settings)
             .map(baseUrl => buildOpenAiCompatibleEndpointUrl(baseUrl, endpointPath))
             .filter(Boolean),
     );
+
+    if (!shouldPreferTavernImageProxy(settings)) {
+        return directEndpoints;
+    }
+
+    const proxyEndpoints = directEndpoints
+        .filter(endpointUrl => isAbsoluteHttpUrl(endpointUrl) || isAbsoluteHttpsUrl(endpointUrl))
+        .map(endpointUrl => buildSillyTavernCorsProxyUrl(endpointUrl))
+        .filter(Boolean);
+
+    return uniqueStrings([...proxyEndpoints, ...directEndpoints]);
 }
 
 function isPromptSafetyBlockError(error) {
@@ -2729,10 +2750,16 @@ async function attachImageToMessage(messageId, prompt, base64Data, sourceMessage
     };
     syncMessageExtraToCurrentSwipe(message);
 
-    updateMessageBlock(messageId, message, { rerenderMessage: true });
+    // We are only attaching media here. Re-rendering mes_text will wipe the inline
+    // slot/button DOM and make the image rely on later recovery passes to move back
+    // into place, which is the main reason some chats only show the image after refresh.
+    updateMessageBlock(messageId, message, { rerenderMessage: false });
+    syncMessageActionButton(messageId);
     scheduleMessageMediaRefresh(messageId, { retryBrokenImage: true });
     await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, messageId, 'extension');
     await context.saveChat();
+    syncMessageActionButton(messageId);
+    scheduleSyncAllMessageActionButtons();
     scheduleMessageMediaRefresh(messageId, { retryBrokenImage: true });
 
     return { imagePath, messageId };
@@ -3503,6 +3530,12 @@ function refreshMessageMediaPresentation(messageId, { retryBrokenImage = false, 
     }
 
     appendMediaToMessage(message, messageElement, false);
+
+    const textContainer = messageElement.find('.mes_text').first();
+    const hasInlineSlot = textContainer.find(`> ${MESSAGE_INLINE_SLOT_SELECTOR}[data-st-message-id="${normalizedId}"]`).length > 0;
+    if (message?.extra?.chatgpt2api_image_meta && !hasInlineSlot) {
+        syncMessageActionButton(normalizedId);
+    }
 
     const imageElement = messageElement.find('.mes_img').first();
     const shouldForceReload = retryBrokenImage && isBrokenMessageImage(imageElement);

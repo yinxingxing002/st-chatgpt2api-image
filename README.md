@@ -71,7 +71,9 @@ You need:
 Important:
 
 - If the extension is used directly from the browser, the API should allow CORS.
-- If CORS is not enabled, add a proxy layer on the server side.
+- In `tavern` mode, prompt requests can reuse SillyTavern's backend proxy chain.
+- In `tavern` mode, image requests can use SillyTavern's built-in `/proxy/...` route when `enableCorsProxy: true` is enabled in `config.yaml`.
+- If neither browser CORS nor SillyTavern CORS proxy is available, the image API still needs a same-origin reverse proxy on the server side.
 
 ## Main Settings
 

@@ -115,9 +115,9 @@
 
         <div class="m-t-1">
             <h4>生图接口地址</h4>
-            <input id="st_chatgpt2api_image_api_url" class="text_pole wide100p" type="text" placeholder="http://43.254.166.19:8888 或 /api/chatgpt2api/v1" />
+            <input id="st_chatgpt2api_image_api_url" class="text_pole wide100p" type="text" placeholder="http://43.254.166.19:8888 或 https://your-image-api.example.com/v1" />
             <small class="st-chatgpt2api-image-help">
-                扩展兼容填写到根地址、<code>/v1</code> 地址，或完整的 <code>/images/generations</code> 路径。云酒馆里更推荐填写同源代理路径，例如 <code>/api/chatgpt2api/v1</code>。
+                扩展兼容填写到根地址、<code>/v1</code> 地址，或完整的 <code>/images/generations</code> 路径。云酒馆的酒馆模式会优先尝试走 SillyTavern 自带的 <code>/proxy</code> 通用代理；如果接口本身支持 HTTPS 和 CORS，也可以直接填写外部地址。
             </small>
         </div>
 
