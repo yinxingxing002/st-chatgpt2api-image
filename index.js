@@ -18,6 +18,7 @@ import {
     oai_settings,
 } from '../../../openai.js';
 import { user_avatar } from '../../../personas.js';
+import { callGenericPopup, POPUP_TYPE } from '../../../popup.js';
 import { loadMovingUIState } from '../../../power-user.js';
 import {
     checkWorldInfo,
@@ -42,6 +43,10 @@ const MESSAGE_INLINE_SLOT_MEDIA_SELECTOR = '.st-chatgpt2api-image-inline-slot-me
 const MEDIA_REFRESH_RETRY_DELAYS = [0, 80, 220, 500, 1200, 2400];
 const DEFAULT_TAVERN_CORS_PROXY_BASE = '/proxy';
 const TOAST_TITLE = 'ChatGPT2API 生图';
+const PROTOCOL_PRESET_SELECTION_CUSTOM = '__working_copy__';
+const PROTOCOL_PRESET_SELECTION_DEFAULT = '__builtin_default__';
+const PROTOCOL_PRESET_FILE_KIND = 'st-chatgpt2api-image.prompt-preset';
+const PROTOCOL_PRESET_FILE_VERSION = 1;
 const STATUS_TITLES = {
     info: '准备就绪',
     busy: '处理中',
@@ -190,6 +195,282 @@ const PERSONA_DESCRIPTOR_RUNTIME_SCAFFOLD = [
     '4. Return JSON only.',
 ].join('\n');
 
+const PROMPT_MANAGER_VERSION = 1;
+const PROMPT_MANAGER_BUILTIN_IDENTIFIERS = new Set([
+    'main',
+    'nsfw',
+    'dialogueExamples',
+    'jailbreak',
+    'chatHistory',
+    'worldInfoAfter',
+    'worldInfoBefore',
+    'enhanceDefinitions',
+    'charDescription',
+    'charPersonality',
+    'scenario',
+    'personaDescription',
+]);
+
+function buildDefaultPromptManagerPrompts(basePrompt = DEFAULT_PROMPT_API_SYSTEM_PROMPT) {
+    return [
+        {
+            identifier: 'main',
+            name: 'Main Prompt',
+            system_prompt: true,
+            role: 'system',
+            content: String(basePrompt || DEFAULT_PROMPT_API_SYSTEM_PROMPT).trim(),
+        },
+        {
+            identifier: 'worldInfoBefore',
+            name: 'World Info (before)',
+            system_prompt: true,
+            marker: true,
+            content: '',
+        },
+        {
+            identifier: 'personaDescription',
+            name: 'Persona Description',
+            system_prompt: true,
+            marker: true,
+            content: '',
+        },
+        {
+            identifier: 'charDescription',
+            name: 'Char Description',
+            system_prompt: true,
+            marker: true,
+            content: '',
+        },
+        {
+            identifier: 'charPersonality',
+            name: 'Char Personality',
+            system_prompt: true,
+            marker: true,
+            content: '',
+        },
+        {
+            identifier: 'scenario',
+            name: 'Scenario',
+            system_prompt: true,
+            marker: true,
+            content: '',
+        },
+        {
+            identifier: 'dialogueExamples',
+            name: 'Chat Examples',
+            system_prompt: true,
+            marker: true,
+            content: '',
+        },
+        {
+            identifier: 'enhanceDefinitions',
+            name: 'Enhance Definitions',
+            system_prompt: true,
+            role: 'system',
+            content: '',
+            marker: false,
+        },
+        {
+            identifier: 'nsfw',
+            name: 'Auxiliary Prompt',
+            system_prompt: true,
+            role: 'system',
+            content: '',
+            marker: false,
+        },
+        {
+            identifier: 'jailbreak',
+            name: 'Post-History Instructions',
+            system_prompt: true,
+            role: 'system',
+            content: '',
+            marker: false,
+        },
+    ];
+}
+
+function buildDefaultPromptManagerOrder() {
+    return [
+        { identifier: 'main', enabled: true },
+        { identifier: 'worldInfoBefore', enabled: true },
+        { identifier: 'personaDescription', enabled: true },
+        { identifier: 'charDescription', enabled: true },
+        { identifier: 'charPersonality', enabled: true },
+        { identifier: 'scenario', enabled: true },
+        { identifier: 'dialogueExamples', enabled: false },
+        { identifier: 'enhanceDefinitions', enabled: false },
+        { identifier: 'nsfw', enabled: true },
+        { identifier: 'jailbreak', enabled: false },
+    ];
+}
+
+function buildDefaultPromptManagerState(basePrompt = DEFAULT_PROMPT_API_SYSTEM_PROMPT) {
+    return {
+        version: PROMPT_MANAGER_VERSION,
+        type: 'full',
+        prompts: buildDefaultPromptManagerPrompts(basePrompt),
+        prompt_order: buildDefaultPromptManagerOrder(),
+    };
+}
+
+function createPromptManagerIdentifier() {
+    return `prompt_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function getBuiltinPromptManagerPrompt(identifier, basePrompt = DEFAULT_PROMPT_API_SYSTEM_PROMPT) {
+    return buildDefaultPromptManagerPrompts(basePrompt).find(prompt => prompt.identifier === identifier) || null;
+}
+
+function isBuiltinPromptManagerIdentifier(identifier) {
+    return PROMPT_MANAGER_BUILTIN_IDENTIFIERS.has(String(identifier || '').trim());
+}
+
+function normalizePromptManagerPrompt(rawPrompt, fallbackIndex = 0, basePrompt = DEFAULT_PROMPT_API_SYSTEM_PROMPT) {
+    if (!rawPrompt || typeof rawPrompt !== 'object') {
+        return null;
+    }
+
+    const clone = cloneForStorage(rawPrompt) || {};
+    const builtin = getBuiltinPromptManagerPrompt(clone.identifier, basePrompt);
+    const fallbackIdentifier = builtin?.identifier || clone.identifier || `custom_${fallbackIndex + 1}_${createPromptManagerIdentifier()}`;
+    const fallbackName = builtin?.name || clone.name || `Prompt ${fallbackIndex + 1}`;
+
+    clone.identifier = String(fallbackIdentifier).trim() || `custom_${fallbackIndex + 1}_${createPromptManagerIdentifier()}`;
+    clone.name = String(clone.name || fallbackName).trim() || fallbackName;
+    clone.role = String(clone.role || builtin?.role || 'system').trim() || 'system';
+    clone.content = String(clone.content ?? builtin?.content ?? '').replace(/\r\n/g, '\n');
+    clone.system_prompt = clone.system_prompt !== false;
+    clone.marker = !!(clone.marker ?? builtin?.marker);
+    clone.injection_position = Number.isFinite(Number(clone.injection_position)) ? Number(clone.injection_position) : 0;
+    return clone;
+}
+
+function normalizePromptManagerOrderEntry(rawEntry) {
+    if (!rawEntry || typeof rawEntry !== 'object') {
+        return null;
+    }
+
+    const identifier = String(rawEntry.identifier || '').trim();
+    if (!identifier) {
+        return null;
+    }
+
+    return {
+        identifier,
+        enabled: rawEntry.enabled !== false,
+    };
+}
+
+function normalizePromptManagerState(rawState, fallbackMainPrompt = DEFAULT_PROMPT_API_SYSTEM_PROMPT) {
+    if (typeof rawState === 'string' && rawState.trim()) {
+        return buildDefaultPromptManagerState(rawState.trim());
+    }
+
+    if (!rawState || typeof rawState !== 'object') {
+        return buildDefaultPromptManagerState(fallbackMainPrompt);
+    }
+
+    const source = rawState?.data && typeof rawState.data === 'object'
+        ? {
+            version: rawState.version,
+            type: rawState.type,
+            prompts: rawState.data.prompts,
+            prompt_order: rawState.data.prompt_order,
+        }
+        : rawState;
+
+    const sourcePromptOrder = Array.isArray(source.prompt_order) && source.prompt_order.some(entry => Array.isArray(entry?.order))
+        ? source.prompt_order.find(entry => Number(entry?.character_id) === 100001)?.order
+            || source.prompt_order.find(entry => Array.isArray(entry?.order) && entry.order.length)?.order
+            || []
+        : source.prompt_order;
+
+    const normalizedPrompts = Array.isArray(source.prompts)
+        ? source.prompts
+            .map((prompt, index) => normalizePromptManagerPrompt(prompt, index, fallbackMainPrompt))
+            .filter(Boolean)
+        : [];
+
+    const normalizedOrder = Array.isArray(sourcePromptOrder)
+        ? sourcePromptOrder
+            .map(normalizePromptManagerOrderEntry)
+            .filter(Boolean)
+        : [];
+
+    const prompts = normalizedPrompts.length
+        ? normalizedPrompts
+        : buildDefaultPromptManagerState(fallbackMainPrompt).prompts;
+
+    const promptMap = new Map(prompts.map(prompt => [prompt.identifier, prompt]));
+    const order = [];
+    const seen = new Set();
+
+    for (const entry of normalizedOrder) {
+        if (!promptMap.has(entry.identifier) || seen.has(entry.identifier)) {
+            continue;
+        }
+
+        seen.add(entry.identifier);
+        order.push(entry);
+    }
+
+    for (const defaultEntry of buildDefaultPromptManagerOrder()) {
+        if (!promptMap.has(defaultEntry.identifier) || seen.has(defaultEntry.identifier)) {
+            continue;
+        }
+
+        seen.add(defaultEntry.identifier);
+        order.push({ identifier: defaultEntry.identifier, enabled: defaultEntry.enabled });
+    }
+
+    for (const prompt of prompts) {
+        if (seen.has(prompt.identifier)) {
+            continue;
+        }
+
+        seen.add(prompt.identifier);
+        order.push({ identifier: prompt.identifier, enabled: !prompt.marker });
+    }
+
+    return {
+        version: Number.isFinite(Number(source.version)) ? Number(source.version) : PROMPT_MANAGER_VERSION,
+        type: typeof source.type === 'string' && source.type.trim() ? source.type.trim() : 'full',
+        prompts,
+        prompt_order: order,
+    };
+}
+
+function getPromptManagerPromptById(promptManager, identifier) {
+    return Array.isArray(promptManager?.prompts)
+        ? promptManager.prompts.find(prompt => prompt.identifier === identifier) || null
+        : null;
+}
+
+function getPromptManagerOrderEntry(promptManager, identifier) {
+    return Array.isArray(promptManager?.prompt_order)
+        ? promptManager.prompt_order.find(entry => entry.identifier === identifier) || null
+        : null;
+}
+
+function getOrderedPromptManagerEntries(promptManager) {
+    const normalized = normalizePromptManagerState(promptManager);
+    const promptMap = new Map(normalized.prompts.map(prompt => [prompt.identifier, prompt]));
+
+    return normalized.prompt_order
+        .map(entry => {
+            const prompt = promptMap.get(entry.identifier);
+            if (!prompt) {
+                return null;
+            }
+
+            return {
+                prompt,
+                order: entry,
+            };
+        })
+        .filter(Boolean);
+}
+
 const defaultSettings = {
     enabled: true,
     connection_mode: 'browser',
@@ -200,8 +481,11 @@ const defaultSettings = {
     prompt_api_model: 'gcli-gemini-3-flash-preview',
     prompt_api_model_options: [],
     prompt_api_system_prompt: DEFAULT_PROMPT_API_SYSTEM_PROMPT,
+    prompt_api_prompt_manager: null,
     descriptor_card_system_prompt: DEFAULT_CARD_DESCRIPTOR_SYSTEM_PROMPT,
     descriptor_persona_system_prompt: DEFAULT_PERSONA_DESCRIPTOR_SYSTEM_PROMPT,
+    protocol_presets: [],
+    protocol_preset_selection: PROTOCOL_PRESET_SELECTION_CUSTOM,
     image_api_url: '',
     image_api_key: '',
     image_model: 'gpt-image-2',
@@ -222,6 +506,8 @@ const runtimeState = {
     busyPhase: 'idle',
     mediaRefreshTimers: new Map(),
     chatSaveTimer: null,
+    protocolPresetEditorOpen: false,
+    promptManagerEditingIdentifier: '',
 };
 
 let isGenerating = false;
@@ -229,7 +515,12 @@ let isGenerating = false;
 function ensureSettings() {
     extension_settings[MODULE_NAME] = extension_settings[MODULE_NAME] || {};
     extension_settings[MODULE_NAME] = Object.assign({}, defaultSettings, extension_settings[MODULE_NAME]);
-    return extension_settings[MODULE_NAME];
+    const settings = extension_settings[MODULE_NAME];
+    settings.prompt_api_prompt_manager = normalizePromptManagerState(
+        settings.prompt_api_prompt_manager,
+        settings.prompt_api_system_prompt || DEFAULT_PROMPT_API_SYSTEM_PROMPT,
+    );
+    return settings;
 }
 
 function isInlineImageButtonEnabled() {
@@ -246,6 +537,15 @@ function cloneForStorage(value) {
     } catch {
         return value;
     }
+}
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function scheduleCurrentChatSave(delay = 400) {
@@ -687,8 +987,160 @@ function sanitizeSourceForPromptApi(text, settings = ensureSettings()) {
     return sanitized;
 }
 
+function getPromptManagerState(settings = ensureSettings()) {
+    return normalizePromptManagerState(
+        settings.prompt_api_prompt_manager,
+        settings.prompt_api_system_prompt || DEFAULT_PROMPT_API_SYSTEM_PROMPT,
+    );
+}
+
+function syncPromptManagerLegacyField(settings = ensureSettings()) {
+    const promptManager = getPromptManagerState(settings);
+    const mainPrompt = getPromptManagerPromptById(promptManager, 'main');
+    settings.prompt_api_system_prompt = String(mainPrompt?.content || DEFAULT_PROMPT_API_SYSTEM_PROMPT).trim() || DEFAULT_PROMPT_API_SYSTEM_PROMPT;
+}
+
+function setPromptManagerState(nextState, settings = ensureSettings()) {
+    settings.prompt_api_prompt_manager = normalizePromptManagerState(
+        nextState,
+        settings.prompt_api_system_prompt || DEFAULT_PROMPT_API_SYSTEM_PROMPT,
+    );
+    syncPromptManagerLegacyField(settings);
+    return settings.prompt_api_prompt_manager;
+}
+
+function isEditablePromptManagerPrompt(prompt) {
+    return !!prompt && (!prompt.marker || String(prompt.content || '').trim().length > 0);
+}
+
+function canRenamePromptManagerPrompt(prompt) {
+    return !!prompt && !isBuiltinPromptManagerIdentifier(prompt.identifier);
+}
+
+function canDeletePromptManagerPrompt(prompt) {
+    return !!prompt && !isBuiltinPromptManagerIdentifier(prompt.identifier);
+}
+
+function refreshPromptManagerPreviewAndList(settings = ensureSettings()) {
+    const preview = $('#st_chatgpt2api_image_protocol_preset_preview_text');
+    if (preview.length) {
+        const source = buildPromptManagerPreviewText(settings);
+        const collapsed = source.replace(/\s+/g, ' ').trim();
+        preview.text(collapsed ? (collapsed.length > 220 ? `${collapsed.slice(0, 220)}...` : collapsed) : '当前预设正文为空。');
+    }
+
+    renderPromptManagerListUi(settings);
+}
+
+function replacePromptManagerMacros(text, promptContext = null) {
+    const source = String(text || '');
+    if (!source) {
+        return '';
+    }
+
+    const cardLabel = String(promptContext?.cardContext?.label || promptContext?.sourceMessage?.name || '').trim();
+    const userLabel = String(promptContext?.personaContext?.label || getContext()?.name1 || 'User').trim();
+
+    return source
+        .replace(/\{\{\s*charIfNotGroup\s*\}\}/gi, cardLabel || 'Character')
+        .replace(/\{\{\s*char\s*\}\}/gi, cardLabel || 'Character')
+        .replace(/\{\{\s*user\s*\}\}/gi, userLabel || 'User')
+        .replace(/\{\{\s*persona\s*\}\}/gi, userLabel || 'User')
+        .trim();
+}
+
+function buildPromptManagerPreviewText(settings = ensureSettings()) {
+    const promptManager = getPromptManagerState(settings);
+    const sections = [];
+
+    for (const entry of getOrderedPromptManagerEntries(promptManager)) {
+        if (!entry.order.enabled) {
+            continue;
+        }
+
+        const { prompt } = entry;
+        const content = prompt.marker
+            ? `[Runtime slot: ${prompt.name}]`
+            : replacePromptManagerMacros(prompt.content);
+
+        const normalizedContent = String(content || '').trim();
+        if (!normalizedContent) {
+            continue;
+        }
+
+        if (prompt.identifier === 'main') {
+            sections.push(normalizedContent);
+        } else {
+            sections.push(`[${prompt.name}]\n${normalizedContent}`);
+        }
+    }
+
+    return sections.join('\n\n').trim();
+}
+
+async function buildPromptManagerRuntimeBindings(promptContext) {
+    const cardContext = promptContext?.cardContext || null;
+    const personaContext = promptContext?.personaContext || null;
+    const context = getContext();
+    const relevantWorldNames = uniqueStrings([
+        ...getCardWorldBookNames(cardContext, context),
+        ...getPersonaLorebookNames(personaContext, context),
+    ]);
+
+    const worldInfoBlock = await buildActivatedLoreSourceBlock({
+        cardContext,
+        personaContext,
+        relevantWorldNames,
+        context,
+        preferredLabel: 'Current relevant world info and active lore:',
+    });
+
+    return {
+        worldInfoBefore: worldInfoBlock,
+        worldInfoAfter: worldInfoBlock,
+        personaDescription: String(personaContext?.sourceDescription || promptContext?.personaDescriptor || '').trim(),
+        charDescription: String(cardContext?.fields?.description || '').trim(),
+        charPersonality: String(cardContext?.fields?.personality || '').trim(),
+        scenario: String(cardContext?.fields?.scenario || '').trim(),
+        dialogueExamples: String(cardContext?.fields?.mesExamples || '').trim(),
+    };
+}
+
+async function buildCompiledPromptManagerText(settings = ensureSettings(), promptContext = null) {
+    const promptManager = getPromptManagerState(settings);
+    const runtimeBindings = promptContext ? await buildPromptManagerRuntimeBindings(promptContext) : {};
+    const sections = [];
+
+    for (const entry of getOrderedPromptManagerEntries(promptManager)) {
+        if (!entry.order.enabled) {
+            continue;
+        }
+
+        const { prompt } = entry;
+        let content = '';
+
+        if (prompt.marker) {
+            content = String(runtimeBindings[prompt.identifier] || prompt.content || '').trim();
+        } else {
+            content = replacePromptManagerMacros(prompt.content, promptContext);
+        }
+
+        if (!content) {
+            continue;
+        }
+
+        if (prompt.identifier === 'main') {
+            sections.push(content);
+        } else {
+            sections.push(`[${prompt.name}]\n${content}`);
+        }
+    }
+
+    return sections.join('\n\n').trim() || DEFAULT_PROMPT_API_SYSTEM_PROMPT;
+}
+
 function getPromptAssistantSystemPrompt(settings = ensureSettings()) {
-    const configured = String(settings.prompt_api_system_prompt || '').trim();
+    const configured = buildPromptManagerPreviewText(settings) || String(settings.prompt_api_system_prompt || '').trim();
     return configured || DEFAULT_PROMPT_API_SYSTEM_PROMPT;
 }
 
@@ -708,8 +1160,11 @@ function buildEffectiveSystemPrompt(basePrompt, runtimeScaffold) {
         .join('\n\n');
 }
 
-function getEffectivePromptAssistantSystemPrompt(settings = ensureSettings()) {
-    return buildEffectiveSystemPrompt(getPromptAssistantSystemPrompt(settings), PROMPT_ASSISTANT_RUNTIME_SCAFFOLD);
+async function getEffectivePromptAssistantSystemPrompt(settings = ensureSettings(), promptContext = null) {
+    return buildEffectiveSystemPrompt(
+        await buildCompiledPromptManagerText(settings, promptContext),
+        PROMPT_ASSISTANT_RUNTIME_SCAFFOLD,
+    );
 }
 
 function getEffectiveCardDescriptorSystemPrompt(settings = ensureSettings()) {
@@ -718,6 +1173,916 @@ function getEffectiveCardDescriptorSystemPrompt(settings = ensureSettings()) {
 
 function getEffectivePersonaDescriptorSystemPrompt(settings = ensureSettings()) {
     return buildEffectiveSystemPrompt(getPersonaDescriptorSystemPrompt(settings), PERSONA_DESCRIPTOR_RUNTIME_SCAFFOLD);
+}
+
+function normalizeMultilineSetting(value, fallback = '') {
+    const normalized = String(value ?? fallback ?? '').replace(/\r\n/g, '\n').trim();
+    return normalized || String(fallback ?? '').replace(/\r\n/g, '\n').trim();
+}
+
+function sanitizeProtocolPresetName(value, fallback = '导入的提示词预设') {
+    const normalized = String(value || '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    const finalName = normalized || fallback;
+
+    if (finalName === '当前工作副本' || finalName === '内置默认提示词') {
+        return `${finalName} - 导入`;
+    }
+
+    return finalName;
+}
+
+function buildDefaultProtocolPreset() {
+    const promptManager = buildDefaultPromptManagerState(DEFAULT_PROMPT_API_SYSTEM_PROMPT);
+    return {
+        name: '内置默认提示词',
+        prompt_api_system_prompt: DEFAULT_PROMPT_API_SYSTEM_PROMPT,
+        prompt_api_prompt_manager: promptManager,
+        descriptor_card_system_prompt: DEFAULT_CARD_DESCRIPTOR_SYSTEM_PROMPT,
+        descriptor_persona_system_prompt: DEFAULT_PERSONA_DESCRIPTOR_SYSTEM_PROMPT,
+        nsfw_guard_enabled: true,
+        nsfw_rewrite_hint: DEFAULT_NSFW_REWRITE_HINT,
+    };
+}
+
+function normalizeProtocolPresetRecord(rawPreset, fallbackName = '导入的提示词预设') {
+    let source = rawPreset;
+
+    if (typeof source === 'string') {
+        source = { prompt_api_system_prompt: source };
+    }
+
+    if (source?.version && source?.data && Array.isArray(source?.data?.prompts)) {
+        source = {
+            name: source.name || fallbackName,
+            prompt_api_prompt_manager: source,
+        };
+    }
+
+    if (Array.isArray(source?.prompts) && Array.isArray(source?.prompt_order)) {
+        source = {
+            name: source.name || source.preset_name || fallbackName,
+            prompt_api_prompt_manager: {
+                version: source.version || PROMPT_MANAGER_VERSION,
+                type: source.type || 'full',
+                prompts: source.prompts,
+                prompt_order: source.prompt_order,
+            },
+        };
+    }
+
+    if (source?.preset && typeof source.preset === 'object') {
+        source = Object.assign({}, source.preset, {
+            name: source.preset.name || source.name || fallbackName,
+        });
+    }
+
+    if (!source || typeof source !== 'object') {
+        return null;
+    }
+
+    const defaults = buildDefaultProtocolPreset();
+    const promptManager = normalizePromptManagerState(
+        source.prompt_api_prompt_manager ?? source.prompt_manager ?? source,
+        source.prompt_api_system_prompt ?? source.system_prompt ?? source.content ?? source.prompt ?? defaults.prompt_api_system_prompt,
+    );
+
+    return {
+        name: sanitizeProtocolPresetName(source.name, fallbackName),
+        prompt_api_system_prompt: normalizeMultilineSetting(
+            getPromptManagerPromptById(promptManager, 'main')?.content,
+            defaults.prompt_api_system_prompt,
+        ),
+        prompt_api_prompt_manager: promptManager,
+        descriptor_card_system_prompt: normalizeMultilineSetting(
+            source.descriptor_card_system_prompt,
+            defaults.descriptor_card_system_prompt,
+        ),
+        descriptor_persona_system_prompt: normalizeMultilineSetting(
+            source.descriptor_persona_system_prompt,
+            defaults.descriptor_persona_system_prompt,
+        ),
+        nsfw_guard_enabled: source.nsfw_guard_enabled !== false,
+        nsfw_rewrite_hint: normalizeMultilineSetting(
+            source.nsfw_rewrite_hint,
+            defaults.nsfw_rewrite_hint,
+        ),
+    };
+}
+
+function ensureProtocolPresetSettings(settings = ensureSettings()) {
+    const presets = Array.isArray(settings.protocol_presets) ? settings.protocol_presets : [];
+    settings.protocol_presets = presets
+        .map((preset, index) => normalizeProtocolPresetRecord(preset, `导入预设 ${index + 1}`))
+        .filter(Boolean);
+
+    const selection = String(settings.protocol_preset_selection || PROTOCOL_PRESET_SELECTION_CUSTOM);
+    settings.protocol_preset_selection = selection;
+    return settings;
+}
+
+function createCurrentProtocolPresetSnapshot(name = '') {
+    const settings = ensureSettings();
+    return normalizeProtocolPresetRecord({
+        name,
+        prompt_api_system_prompt: settings.prompt_api_system_prompt,
+        prompt_api_prompt_manager: cloneForStorage(getPromptManagerState(settings)),
+        descriptor_card_system_prompt: settings.descriptor_card_system_prompt,
+        descriptor_persona_system_prompt: settings.descriptor_persona_system_prompt,
+        nsfw_guard_enabled: settings.nsfw_guard_enabled,
+        nsfw_rewrite_hint: settings.nsfw_rewrite_hint,
+    }, name || '当前工作副本');
+}
+
+function findStoredProtocolPreset(settings, name) {
+    return ensureProtocolPresetSettings(settings).protocol_presets.find(preset => preset.name === name) || null;
+}
+
+function upsertProtocolPreset(settings, preset) {
+    const normalized = normalizeProtocolPresetRecord(preset, preset?.name || '导入的提示词预设');
+    if (!normalized) {
+        return null;
+    }
+
+    const existingIndex = ensureProtocolPresetSettings(settings).protocol_presets.findIndex(item => item.name === normalized.name);
+
+    if (existingIndex >= 0) {
+        settings.protocol_presets.splice(existingIndex, 1, normalized);
+    } else {
+        settings.protocol_presets.push(normalized);
+        settings.protocol_presets.sort((left, right) => left.name.localeCompare(right.name, 'zh-Hans-CN'));
+    }
+
+    return normalized;
+}
+
+function removeStoredProtocolPreset(settings, name) {
+    const index = ensureProtocolPresetSettings(settings).protocol_presets.findIndex(item => item.name === name);
+    if (index >= 0) {
+        settings.protocol_presets.splice(index, 1);
+        return true;
+    }
+
+    return false;
+}
+
+function applyProtocolPresetToSettings(preset, selectionValue = preset?.name || PROTOCOL_PRESET_SELECTION_CUSTOM) {
+    const settings = ensureSettings();
+    const normalized = normalizeProtocolPresetRecord(preset, '导入的提示词预设');
+
+    if (!normalized) {
+        return;
+    }
+
+    settings.prompt_api_system_prompt = normalized.prompt_api_system_prompt;
+    settings.prompt_api_prompt_manager = normalizePromptManagerState(
+        normalized.prompt_api_prompt_manager,
+        normalized.prompt_api_system_prompt,
+    );
+    settings.descriptor_card_system_prompt = normalized.descriptor_card_system_prompt;
+    settings.descriptor_persona_system_prompt = normalized.descriptor_persona_system_prompt;
+    settings.nsfw_guard_enabled = normalized.nsfw_guard_enabled;
+    settings.nsfw_rewrite_hint = normalized.nsfw_rewrite_hint;
+    settings.protocol_preset_selection = selectionValue;
+}
+
+function getProtocolPresetSelectionLabel(selection) {
+    if (selection === PROTOCOL_PRESET_SELECTION_CUSTOM) {
+        return '当前工作副本';
+    }
+
+    if (selection === PROTOCOL_PRESET_SELECTION_DEFAULT) {
+        return '内置默认提示词';
+    }
+
+    return selection;
+}
+
+function getPromptManagerEditingPrompt(settings = ensureSettings()) {
+    const promptManager = getPromptManagerState(settings);
+    const identifier = runtimeState.promptManagerEditingIdentifier || 'main';
+    return getPromptManagerPromptById(promptManager, identifier) || getPromptManagerPromptById(promptManager, 'main') || null;
+}
+
+function selectPromptManagerPromptForEdit(identifier, { open = true } = {}) {
+    runtimeState.promptManagerEditingIdentifier = String(identifier || 'main').trim() || 'main';
+    if (open) {
+        runtimeState.protocolPresetEditorOpen = true;
+    }
+    refreshProtocolPresetEditorUi();
+}
+
+function updatePromptManagerPromptContent(identifier, content) {
+    const settings = ensureSettings();
+    const promptManager = getPromptManagerState(settings);
+    const prompt = getPromptManagerPromptById(promptManager, identifier);
+    if (!prompt) {
+        return;
+    }
+
+    prompt.content = String(content || '');
+    setPromptManagerState(promptManager, settings);
+    markProtocolPresetAsWorkingCopy();
+    saveSettingsDebounced();
+    refreshPromptManagerPreviewAndList(settings);
+}
+
+function updatePromptManagerPromptName(identifier, name) {
+    const settings = ensureSettings();
+    const promptManager = getPromptManagerState(settings);
+    const prompt = getPromptManagerPromptById(promptManager, identifier);
+    if (!prompt || !canRenamePromptManagerPrompt(prompt)) {
+        return;
+    }
+
+    prompt.name = String(name || '').trim() || prompt.name;
+    setPromptManagerState(promptManager, settings);
+    markProtocolPresetAsWorkingCopy();
+    saveSettingsDebounced();
+    refreshPromptManagerPreviewAndList(settings);
+}
+
+function movePromptManagerPrompt(identifier, delta) {
+    const settings = ensureSettings();
+    const promptManager = getPromptManagerState(settings);
+    const order = Array.isArray(promptManager.prompt_order) ? [...promptManager.prompt_order] : [];
+    const currentIndex = order.findIndex(entry => entry.identifier === identifier);
+    if (currentIndex === -1) {
+        return;
+    }
+
+    const targetIndex = currentIndex + Number(delta || 0);
+    if (targetIndex < 0 || targetIndex >= order.length) {
+        return;
+    }
+
+    const [entry] = order.splice(currentIndex, 1);
+    order.splice(targetIndex, 0, entry);
+    promptManager.prompt_order = order;
+    setPromptManagerState(promptManager, settings);
+    markProtocolPresetAsWorkingCopy();
+    saveSettingsDebounced();
+    refreshProtocolPresetEditorUi();
+}
+
+function togglePromptManagerPromptEnabled(identifier) {
+    const settings = ensureSettings();
+    const promptManager = getPromptManagerState(settings);
+    const entry = getPromptManagerOrderEntry(promptManager, identifier);
+    if (!entry) {
+        return;
+    }
+
+    entry.enabled = entry.enabled === false;
+    setPromptManagerState(promptManager, settings);
+    markProtocolPresetAsWorkingCopy();
+    saveSettingsDebounced();
+    refreshProtocolPresetEditorUi();
+}
+
+function addCustomPromptManagerPrompt() {
+    const settings = ensureSettings();
+    const promptManager = getPromptManagerState(settings);
+    const identifier = createPromptManagerIdentifier();
+    const prompt = normalizePromptManagerPrompt({
+        identifier,
+        name: 'Custom Prompt',
+        role: 'system',
+        content: '',
+        system_prompt: true,
+        marker: false,
+    }, promptManager.prompts.length, settings.prompt_api_system_prompt || DEFAULT_PROMPT_API_SYSTEM_PROMPT);
+
+    promptManager.prompts.push(prompt);
+    promptManager.prompt_order.push({ identifier: prompt.identifier, enabled: true });
+    setPromptManagerState(promptManager, settings);
+    markProtocolPresetAsWorkingCopy();
+    saveSettingsDebounced();
+    selectPromptManagerPromptForEdit(prompt.identifier, { open: true });
+}
+
+function deletePromptManagerPrompt(identifier) {
+    const settings = ensureSettings();
+    const promptManager = getPromptManagerState(settings);
+    const prompt = getPromptManagerPromptById(promptManager, identifier);
+    if (!canDeletePromptManagerPrompt(prompt)) {
+        return;
+    }
+
+    promptManager.prompts = promptManager.prompts.filter(item => item.identifier !== identifier);
+    promptManager.prompt_order = promptManager.prompt_order.filter(item => item.identifier !== identifier);
+    setPromptManagerState(promptManager, settings);
+    markProtocolPresetAsWorkingCopy();
+    saveSettingsDebounced();
+    runtimeState.promptManagerEditingIdentifier = 'main';
+    refreshProtocolPresetEditorUi();
+}
+
+function resetPromptManagerPrompt(identifier) {
+    const settings = ensureSettings();
+    const promptManager = getPromptManagerState(settings);
+    const prompt = getPromptManagerPromptById(promptManager, identifier);
+    if (!prompt) {
+        return;
+    }
+
+    const builtin = getBuiltinPromptManagerPrompt(identifier, DEFAULT_PROMPT_API_SYSTEM_PROMPT);
+    if (!builtin) {
+        prompt.content = '';
+    } else {
+        prompt.name = builtin.name;
+        prompt.content = builtin.content || '';
+    }
+
+    setPromptManagerState(promptManager, settings);
+    markProtocolPresetAsWorkingCopy();
+    saveSettingsDebounced();
+    refreshProtocolPresetEditorUi();
+}
+
+function renderPromptManagerListUi(settings = ensureSettings()) {
+    const list = $('#st_chatgpt2api_image_prompt_manager_list');
+    if (!list.length) {
+        return;
+    }
+
+    const promptManager = getPromptManagerState(settings);
+    const editingPrompt = getPromptManagerEditingPrompt(settings);
+    const orderedEntries = getOrderedPromptManagerEntries(promptManager);
+    list.empty();
+
+    if (!orderedEntries.length) {
+        list.append('<div class="st-chatgpt2api-image-prompt-item-empty">当前没有可用的提示词条目。</div>');
+        return;
+    }
+
+    for (let index = 0; index < orderedEntries.length; index++) {
+        const entry = orderedEntries[index];
+        const { prompt, order } = entry;
+        const isEditing = editingPrompt?.identifier === prompt.identifier;
+        const preview = prompt.marker
+            ? '运行时槽位'
+            : (String(prompt.content || '').replace(/\s+/g, ' ').trim() || '空内容');
+        const escapedName = escapeHtml(prompt.name || prompt.identifier);
+        const escapedPreview = escapeHtml(preview.length > 90 ? `${preview.slice(0, 90)}...` : preview);
+        const toggleClass = order.enabled ? 'fa-toggle-on' : 'fa-toggle-off';
+        const markerBadge = prompt.marker ? '<span class="st-chatgpt2api-image-prompt-item-badge">槽位</span>' : '';
+        const customBadge = !prompt.marker && !isBuiltinPromptManagerIdentifier(prompt.identifier)
+            ? '<span class="st-chatgpt2api-image-prompt-item-badge">自定义</span>'
+            : '';
+        const editButton = isEditablePromptManagerPrompt(prompt)
+            ? `<i class="menu_button fa-solid fa-pencil st-chatgpt2api-image-prompt-item-edit" title="编辑条目" data-prompt-id="${escapeHtml(prompt.identifier)}"></i>`
+            : '<i class="menu_button fa-solid fa-pencil st-chatgpt2api-image-prompt-item-edit disabled" title="这个条目没有可编辑正文"></i>';
+        const deleteButton = canDeletePromptManagerPrompt(prompt)
+            ? `<i class="menu_button fa-solid fa-trash-can st-chatgpt2api-image-prompt-item-delete" title="删除条目" data-prompt-id="${escapeHtml(prompt.identifier)}"></i>`
+            : '';
+
+        list.append(`
+            <div class="st-chatgpt2api-image-prompt-item${isEditing ? ' is-editing' : ''}" data-prompt-id="${escapeHtml(prompt.identifier)}">
+                <div class="st-chatgpt2api-image-prompt-item-main st-chatgpt2api-image-prompt-item-edit-trigger" data-prompt-id="${escapeHtml(prompt.identifier)}">
+                    <div class="st-chatgpt2api-image-prompt-item-title-row">
+                        <span class="st-chatgpt2api-image-prompt-item-title">${escapedName}</span>
+                        ${markerBadge}
+                        ${customBadge}
+                    </div>
+                    <div class="st-chatgpt2api-image-prompt-item-preview">${escapedPreview}</div>
+                </div>
+                <div class="st-chatgpt2api-image-prompt-item-actions">
+                    <i class="menu_button fa-solid fa-arrow-up st-chatgpt2api-image-prompt-item-move" title="上移" data-direction="-1" data-prompt-id="${escapeHtml(prompt.identifier)}"${index === 0 ? ' style="visibility:hidden"' : ''}></i>
+                    <i class="menu_button fa-solid fa-arrow-down st-chatgpt2api-image-prompt-item-move" title="下移" data-direction="1" data-prompt-id="${escapeHtml(prompt.identifier)}"${index === orderedEntries.length - 1 ? ' style="visibility:hidden"' : ''}></i>
+                    ${editButton}
+                    <i class="menu_button fa-solid ${toggleClass} st-chatgpt2api-image-prompt-item-toggle" title="${order.enabled ? '停用条目' : '启用条目'}" data-prompt-id="${escapeHtml(prompt.identifier)}"></i>
+                    ${deleteButton}
+                </div>
+            </div>
+        `);
+    }
+}
+
+function getSelectedProtocolPreset(settings = ensureSettings()) {
+    const selection = ensureProtocolPresetSettings(settings).protocol_preset_selection;
+
+    if (selection === PROTOCOL_PRESET_SELECTION_DEFAULT) {
+        return buildDefaultProtocolPreset();
+    }
+
+    if (selection === PROTOCOL_PRESET_SELECTION_CUSTOM) {
+        return null;
+    }
+
+    return findStoredProtocolPreset(settings, selection);
+}
+
+function refreshProtocolPresetUi() {
+    const settings = ensureProtocolPresetSettings();
+    const select = $('#st_chatgpt2api_image_protocol_preset_select');
+
+    if (!select.length) {
+        return;
+    }
+
+    let selection = settings.protocol_preset_selection;
+    const selectedPreset = getSelectedProtocolPreset(settings);
+    if (selection !== PROTOCOL_PRESET_SELECTION_CUSTOM && selection !== PROTOCOL_PRESET_SELECTION_DEFAULT && !selectedPreset) {
+        selection = PROTOCOL_PRESET_SELECTION_CUSTOM;
+        settings.protocol_preset_selection = selection;
+    }
+
+    select.empty();
+    $('<option>').val(PROTOCOL_PRESET_SELECTION_CUSTOM).text('当前工作副本').appendTo(select);
+    $('<option>').val(PROTOCOL_PRESET_SELECTION_DEFAULT).text('内置默认提示词').appendTo(select);
+
+    for (const preset of settings.protocol_presets) {
+        $('<option>').val(preset.name).text(preset.name).appendTo(select);
+    }
+
+    select.val(selection);
+
+    const hasStoredSelection = selection !== PROTOCOL_PRESET_SELECTION_CUSTOM && selection !== PROTOCOL_PRESET_SELECTION_DEFAULT;
+    const canDelete = hasStoredSelection;
+    const canRename = hasStoredSelection;
+    const canUpdate = hasStoredSelection;
+    const canRestore = selection !== PROTOCOL_PRESET_SELECTION_CUSTOM;
+
+    $('#st_chatgpt2api_image_protocol_preset_update').toggleClass('disabled', !canUpdate);
+    $('#st_chatgpt2api_image_protocol_preset_rename').toggleClass('disabled', !canRename);
+    $('#st_chatgpt2api_image_protocol_preset_restore').toggleClass('disabled', !canRestore);
+    $('#st_chatgpt2api_image_protocol_preset_delete').toggleClass('disabled', !canDelete);
+
+    const status = $('#st_chatgpt2api_image_protocol_preset_status');
+    if (selection === PROTOCOL_PRESET_SELECTION_CUSTOM) {
+        status.text('当前正在编辑未保存的工作副本。');
+    } else if (selection === PROTOCOL_PRESET_SELECTION_DEFAULT) {
+        status.text('当前使用内置默认提示词。');
+    } else {
+        status.text(`当前提示词预设：${getProtocolPresetSelectionLabel(selection)}`);
+    }
+
+    refreshProtocolPresetEditorUi();
+}
+
+function refreshProtocolPresetEditorUi() {
+    const settings = ensureSettings();
+    const preview = $('#st_chatgpt2api_image_protocol_preset_preview_text');
+    if (!preview.length) {
+        return;
+    }
+
+    const source = buildPromptManagerPreviewText(settings);
+    const collapsed = source.replace(/\s+/g, ' ').trim();
+    preview.text(collapsed ? (collapsed.length > 220 ? `${collapsed.slice(0, 220)}...` : collapsed) : '当前预设正文为空。');
+
+    renderPromptManagerListUi(settings);
+
+    const editingPrompt = getPromptManagerEditingPrompt(settings);
+    const nameInput = $('#st_chatgpt2api_image_prompt_manager_editor_name');
+    const hint = $('#st_chatgpt2api_image_prompt_manager_editor_hint');
+    const textarea = $('#st_chatgpt2api_image_prompt_api_system_prompt');
+    const resetButtonLabel = $('#st_chatgpt2api_image_reset_prompt_system_prompt span');
+    const closeButton = $('#st_chatgpt2api_image_prompt_manager_editor_close');
+
+    if (editingPrompt && nameInput.length) {
+        nameInput.val(editingPrompt.name || '');
+        nameInput.prop('disabled', !canRenamePromptManagerPrompt(editingPrompt));
+    }
+
+    if (editingPrompt && hint.length) {
+        const tags = [];
+        tags.push(editingPrompt.marker ? '运行时槽位' : '普通条目');
+        tags.push(getPromptManagerOrderEntry(getPromptManagerState(settings), editingPrompt.identifier)?.enabled === false ? '当前已停用' : '当前已启用');
+        if (isBuiltinPromptManagerIdentifier(editingPrompt.identifier)) {
+            tags.push('内置条目');
+        } else {
+            tags.push('自定义条目');
+        }
+        hint.text(tags.join(' · '));
+    }
+
+    if (editingPrompt && textarea.length) {
+        textarea.val(String(editingPrompt.content || ''));
+        textarea.prop('readonly', !isEditablePromptManagerPrompt(editingPrompt));
+        textarea.attr('placeholder', editingPrompt.marker ? '这个运行时槽位没有可编辑正文。' : '编辑这个条目的提示词内容');
+    }
+
+    if (resetButtonLabel.length) {
+        resetButtonLabel.text(editingPrompt && isBuiltinPromptManagerIdentifier(editingPrompt.identifier) ? '恢复当前条目默认内容' : '清空当前条目内容');
+    }
+
+    const editorShell = $('#st_chatgpt2api_image_protocol_preset_editor_shell');
+    const toggleButton = $('#st_chatgpt2api_image_protocol_preset_edit');
+    if (editorShell.length) {
+        editorShell.toggleClass('displayNone', !runtimeState.protocolPresetEditorOpen || !editingPrompt);
+    }
+
+    if (toggleButton.length) {
+        toggleButton.toggleClass('toggleEnabled', !!runtimeState.protocolPresetEditorOpen);
+        toggleButton.attr('title', runtimeState.protocolPresetEditorOpen ? '收起条目编辑器' : '展开条目编辑器');
+    }
+
+    if (closeButton.length) {
+        closeButton.toggleClass('displayNone', !runtimeState.protocolPresetEditorOpen);
+    }
+}
+
+function setProtocolPresetEditorOpen(open) {
+    runtimeState.protocolPresetEditorOpen = !!open;
+    refreshProtocolPresetEditorUi();
+}
+
+function markProtocolPresetAsWorkingCopy() {
+    const settings = ensureProtocolPresetSettings();
+    if (settings.protocol_preset_selection === PROTOCOL_PRESET_SELECTION_CUSTOM) {
+        return;
+    }
+
+    settings.protocol_preset_selection = PROTOCOL_PRESET_SELECTION_CUSTOM;
+    saveSettingsDebounced();
+    refreshProtocolPresetUi();
+}
+
+function ensureProtocolPresetUi() {
+    const promptCard = $('#st_chatgpt2api_image_prompt_api_system_prompt').closest('.st-chatgpt2api-image-card');
+    if (!promptCard.length) {
+        return;
+    }
+
+    if (promptCard.attr('id') !== 'st_chatgpt2api_image_protocol_preset_card') {
+        promptCard.attr('id', 'st_chatgpt2api_image_protocol_preset_card');
+    }
+
+    if ($('#st_chatgpt2api_image_protocol_preset_select').length) {
+        return;
+    }
+
+    promptCard.find('.st-chatgpt2api-image-card-title').first().text('提示词预设');
+    promptCard.find('.st-chatgpt2api-image-help').first().text('像酒馆原生预设一样，在这里切换、导入和编辑提示词条目。支持导入酒馆原生 prompt preset JSON。');
+
+    const presetBar = $(`
+        <div class="st-chatgpt2api-image-preset-row m-t-1">
+            <select id="st_chatgpt2api_image_protocol_preset_select" class="flex1 text_pole st-chatgpt2api-image-preset-select"></select>
+            <div class="flex-container justifyCenter gap3px st-chatgpt2api-image-preset-actions">
+                <input id="st_chatgpt2api_image_protocol_preset_file" type="file" hidden accept=".json,.settings,.txt" class="displayNone" />
+                <i id="st_chatgpt2api_image_protocol_preset_update" class="menu_button fa-solid fa-save" title="更新当前预设"></i>
+                <i id="st_chatgpt2api_image_protocol_preset_rename" class="menu_button fa-solid fa-pencil" title="重命名当前预设"></i>
+                <i id="st_chatgpt2api_image_protocol_preset_edit" class="menu_button fa-solid fa-pen-to-square" title="展开预设正文"></i>
+                <i id="st_chatgpt2api_image_protocol_preset_save" class="menu_button fa-solid fa-file-circle-plus" title="另存为新预设"></i>
+                <i id="st_chatgpt2api_image_protocol_preset_import" class="menu_button fa-solid fa-file-import" title="导入预设文件"></i>
+                <i id="st_chatgpt2api_image_protocol_preset_export" class="menu_button fa-solid fa-file-export" title="导出预设文件"></i>
+                <i id="st_chatgpt2api_image_protocol_preset_restore" class="menu_button fa-solid fa-recycle" title="恢复当前预设"></i>
+                <i id="st_chatgpt2api_image_protocol_preset_delete" class="menu_button fa-solid fa-trash-can" title="删除当前预设"></i>
+            </div>
+        </div>
+    `);
+    const status = $('<small id="st_chatgpt2api_image_protocol_preset_status" class="st-chatgpt2api-image-help"></small>');
+    const promptManagerList = $('<div id="st_chatgpt2api_image_prompt_manager_list" class="st-chatgpt2api-image-prompt-list m-t-1"></div>');
+    const promptManagerTools = $(`
+        <div class="st-chatgpt2api-image-prompt-list-tools flex-container gap5px flexWrap m-t-1">
+            <div id="st_chatgpt2api_image_prompt_manager_add" class="menu_button menu_button_icon">
+                <i class="fa-solid fa-plus"></i>
+                <span>新增自定义条目</span>
+            </div>
+        </div>
+    `);
+
+    const textareaWrap = $('#st_chatgpt2api_image_prompt_api_system_prompt').closest('.m-t-1');
+    if (textareaWrap.length) {
+        let visibleAnchor = textareaWrap;
+
+        if (!$('#st_chatgpt2api_image_protocol_preset_preview').length) {
+            const preview = $(`
+                <div id="st_chatgpt2api_image_protocol_preset_preview" class="st-chatgpt2api-image-preset-preview m-t-1">
+                    <div class="st-chatgpt2api-image-preset-preview-label">当前提示词预设预览</div>
+                    <div id="st_chatgpt2api_image_protocol_preset_preview_text" class="st-chatgpt2api-image-preset-preview-text"></div>
+                </div>
+            `);
+
+            textareaWrap.before(preview);
+        }
+
+        if (!$('#st_chatgpt2api_image_protocol_preset_editor_shell').length) {
+            const editorShell = $('<div id="st_chatgpt2api_image_protocol_preset_editor_shell" class="st-chatgpt2api-image-preset-editor-shell displayNone"></div>');
+            const resetRow = $('#st_chatgpt2api_image_reset_prompt_system_prompt').closest('.flex-container');
+            const editorHeader = $(`
+                <div id="st_chatgpt2api_image_prompt_manager_editor_meta" class="st-chatgpt2api-image-prompt-editor-meta">
+                    <input id="st_chatgpt2api_image_prompt_manager_editor_name" class="text_pole wide100p" type="text" placeholder="条目名称" />
+                    <small id="st_chatgpt2api_image_prompt_manager_editor_hint" class="st-chatgpt2api-image-help"></small>
+                </div>
+            `);
+
+            textareaWrap.before(editorShell);
+            editorShell.append(editorHeader);
+            editorShell.append(textareaWrap);
+            if (resetRow.length) {
+                resetRow.append('<div id="st_chatgpt2api_image_prompt_manager_editor_close" class="menu_button menu_button_icon"><i class="fa-solid fa-chevron-up"></i><span>收起编辑器</span></div>');
+                editorShell.append(resetRow);
+            }
+        }
+
+        visibleAnchor = $('#st_chatgpt2api_image_protocol_preset_preview');
+        if (!visibleAnchor.length) {
+            visibleAnchor = $('#st_chatgpt2api_image_protocol_preset_editor_shell');
+        }
+        if (!visibleAnchor.length) {
+            visibleAnchor = textareaWrap;
+        }
+
+        visibleAnchor.before(status);
+        visibleAnchor.before(presetBar);
+        visibleAnchor.after(promptManagerList);
+        visibleAnchor.after(promptManagerTools);
+    } else {
+        promptCard.append(presetBar, status, promptManagerTools, promptManagerList);
+    }
+
+    setProtocolPresetEditorOpen(false);
+}
+
+function buildProtocolPresetExportPayload(name) {
+    const snapshot = createCurrentProtocolPresetSnapshot(name);
+    return {
+        version: PROMPT_MANAGER_VERSION,
+        type: 'full',
+        name: snapshot.name,
+        data: {
+            prompts: cloneForStorage(snapshot.prompt_api_prompt_manager?.prompts || []),
+            prompt_order: cloneForStorage(snapshot.prompt_api_prompt_manager?.prompt_order || []),
+        },
+        st_chatgpt2api_image_meta: {
+            exported_from: MODULE_NAME,
+            exported_at: new Date().toISOString(),
+        },
+    };
+}
+
+function downloadProtocolPresetFile(payload) {
+    const serialized = JSON.stringify(payload, null, 2);
+    const blob = new Blob([serialized], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    const safeName = sanitizeProtocolPresetName(payload.name || 'protocol-preset')
+        .replace(/[\\/:*?"<>|]+/g, '-')
+        .replace(/\s+/g, '_');
+
+    anchor.href = url;
+    anchor.download = `${safeName}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+}
+
+async function promptProtocolPresetName(defaultValue = '新的提示词预设') {
+    const result = await callGenericPopup('输入提示词预设名称', POPUP_TYPE.INPUT, defaultValue);
+    if (result === false || result === null) {
+        return '';
+    }
+
+    return sanitizeProtocolPresetName(result, defaultValue);
+}
+
+async function saveCurrentProtocolPreset() {
+    const settings = ensureProtocolPresetSettings();
+    const currentSelection = settings.protocol_preset_selection;
+    const suggestedName = currentSelection === PROTOCOL_PRESET_SELECTION_CUSTOM || currentSelection === PROTOCOL_PRESET_SELECTION_DEFAULT
+        ? '新的提示词预设'
+        : currentSelection;
+    const name = await promptProtocolPresetName(suggestedName);
+
+    if (!name) {
+        return;
+    }
+
+    const existingPreset = findStoredProtocolPreset(settings, name);
+    if (existingPreset && currentSelection !== name) {
+        const confirm = await callGenericPopup(`提示词预设 "${name}" 已存在，要覆盖它吗？`, POPUP_TYPE.CONFIRM);
+        if (!confirm) {
+            return;
+        }
+    }
+
+    const savedPreset = upsertProtocolPreset(settings, createCurrentProtocolPresetSnapshot(name));
+    settings.protocol_preset_selection = savedPreset.name;
+    saveSettingsDebounced();
+    refreshProtocolPresetUi();
+    setStatus(`提示词预设已保存：${savedPreset.name}`, 'success');
+    toastr.success(`提示词预设已保存：${savedPreset.name}`, TOAST_TITLE);
+}
+
+async function updateCurrentProtocolPreset() {
+    const settings = ensureProtocolPresetSettings();
+    const currentSelection = settings.protocol_preset_selection;
+
+    if (currentSelection === PROTOCOL_PRESET_SELECTION_CUSTOM || currentSelection === PROTOCOL_PRESET_SELECTION_DEFAULT) {
+        return;
+    }
+
+    upsertProtocolPreset(settings, createCurrentProtocolPresetSnapshot(currentSelection));
+    settings.protocol_preset_selection = currentSelection;
+    saveSettingsDebounced();
+    refreshProtocolPresetUi();
+    setStatus(`提示词预设已更新：${currentSelection}`, 'success');
+    toastr.success(`提示词预设已更新：${currentSelection}`, TOAST_TITLE);
+}
+
+async function renameCurrentProtocolPreset() {
+    const settings = ensureProtocolPresetSettings();
+    const currentSelection = settings.protocol_preset_selection;
+
+    if (currentSelection === PROTOCOL_PRESET_SELECTION_CUSTOM || currentSelection === PROTOCOL_PRESET_SELECTION_DEFAULT) {
+        return;
+    }
+
+    const newName = await promptProtocolPresetName(currentSelection);
+    if (!newName || newName === currentSelection) {
+        return;
+    }
+
+    const existingPreset = findStoredProtocolPreset(settings, newName);
+    if (existingPreset) {
+        const confirm = await callGenericPopup(`提示词预设 "${newName}" 已存在，要覆盖它吗？`, POPUP_TYPE.CONFIRM);
+        if (!confirm) {
+            return;
+        }
+        removeStoredProtocolPreset(settings, newName);
+    }
+
+    removeStoredProtocolPreset(settings, currentSelection);
+    const renamedPreset = upsertProtocolPreset(settings, createCurrentProtocolPresetSnapshot(newName));
+    settings.protocol_preset_selection = renamedPreset.name;
+    saveSettingsDebounced();
+    refreshProtocolPresetUi();
+    setStatus(`提示词预设已重命名：${renamedPreset.name}`, 'success');
+    toastr.success(`提示词预设已重命名：${renamedPreset.name}`, TOAST_TITLE);
+}
+
+async function deleteCurrentProtocolPreset() {
+    const settings = ensureProtocolPresetSettings();
+    const currentSelection = settings.protocol_preset_selection;
+
+    if (currentSelection === PROTOCOL_PRESET_SELECTION_CUSTOM || currentSelection === PROTOCOL_PRESET_SELECTION_DEFAULT) {
+        return;
+    }
+
+    const confirm = await callGenericPopup(`确定删除提示词预设 "${currentSelection}" 吗？`, POPUP_TYPE.CONFIRM);
+    if (!confirm) {
+        return;
+    }
+
+    removeStoredProtocolPreset(settings, currentSelection);
+    settings.protocol_preset_selection = PROTOCOL_PRESET_SELECTION_CUSTOM;
+    saveSettingsDebounced();
+    refreshProtocolPresetUi();
+    setStatus(`提示词预设已删除：${currentSelection}`, 'success');
+    toastr.success(`提示词预设已删除：${currentSelection}`, TOAST_TITLE);
+}
+
+function exportCurrentProtocolPreset() {
+    const settings = ensureProtocolPresetSettings();
+    const currentSelection = settings.protocol_preset_selection;
+    const name = currentSelection === PROTOCOL_PRESET_SELECTION_CUSTOM
+        ? '当前工作副本'
+        : currentSelection === PROTOCOL_PRESET_SELECTION_DEFAULT
+            ? buildDefaultProtocolPreset().name
+            : currentSelection;
+
+    downloadProtocolPresetFile(buildProtocolPresetExportPayload(name));
+    setStatus(`提示词预设已导出：${name}`, 'success');
+    toastr.success(`提示词预设已导出：${name}`, TOAST_TITLE);
+}
+
+function restoreSelectedProtocolPreset() {
+    const settings = ensureProtocolPresetSettings();
+    const currentSelection = settings.protocol_preset_selection;
+
+    if (currentSelection === PROTOCOL_PRESET_SELECTION_CUSTOM) {
+        return;
+    }
+
+    const preset = currentSelection === PROTOCOL_PRESET_SELECTION_DEFAULT
+        ? buildDefaultProtocolPreset()
+        : findStoredProtocolPreset(settings, currentSelection);
+
+    if (!preset) {
+        return;
+    }
+
+    applyProtocolPresetToSettings(preset, currentSelection);
+    saveSettingsDebounced();
+    loadSettingsIntoUi();
+    setStatus(`提示词预设已恢复：${getProtocolPresetSelectionLabel(currentSelection)}`, 'success');
+    toastr.success(`提示词预设已恢复：${getProtocolPresetSelectionLabel(currentSelection)}`, TOAST_TITLE);
+}
+
+async function importProtocolPresetFile(file) {
+    if (!file) {
+        return;
+    }
+
+    const rawText = await file.text();
+    const fileName = String(file.name || '导入的提示词预设').replace(/\.[^.]+$/, '');
+    const parsedJson = tryParseJson(rawText);
+    const importedPresets = extractImportableProtocolPresets(parsedJson || rawText, fileName);
+
+    if (!importedPresets.length) {
+        throw new Error('无法识别这个预设文件。支持导入酒馆原生 prompt preset JSON、常见的 name + content 预设，或本扩展导出的 JSON。');
+    }
+
+    const settings = ensureProtocolPresetSettings();
+    const savedPresets = [];
+
+    for (const importedPreset of importedPresets) {
+        const existingPreset = findStoredProtocolPreset(settings, importedPreset.name);
+        if (existingPreset) {
+            const confirm = await callGenericPopup(`提示词预设 "${importedPreset.name}" 已存在，要覆盖它吗？`, POPUP_TYPE.CONFIRM);
+            if (!confirm) {
+                continue;
+            }
+        }
+
+        savedPresets.push(upsertProtocolPreset(settings, importedPreset));
+    }
+
+    if (!savedPresets.length) {
+        setStatus('没有导入新的提示词预设。', 'info');
+        return;
+    }
+
+    const activePreset = savedPresets[savedPresets.length - 1];
+    applyProtocolPresetToSettings(activePreset, activePreset.name);
+    saveSettingsDebounced();
+    loadSettingsIntoUi();
+    refreshProtocolPresetUi();
+    const importedNames = savedPresets.map(item => item.name).join('、');
+    setStatus(`提示词预设已导入：${importedNames}`, 'success');
+    toastr.success(`提示词预设已导入：${importedNames}`, TOAST_TITLE);
+}
+
+function extractImportableProtocolPresets(source, fileName = '导入的提示词预设') {
+    const presets = [];
+    const seenNames = new Set();
+
+    const pushPreset = (value, fallbackName) => {
+        const normalized = normalizeProtocolPresetRecord(value, fallbackName);
+        if (!normalized) {
+            return;
+        }
+
+        const dedupeKey = String(normalized.name || '').trim().toLowerCase();
+        if (dedupeKey && seenNames.has(dedupeKey)) {
+            return;
+        }
+
+        if (dedupeKey) {
+            seenNames.add(dedupeKey);
+        }
+
+        presets.push(normalized);
+    };
+
+    if (Array.isArray(source)) {
+        source.forEach((item, index) => pushPreset(item, `${fileName}-${index + 1}`));
+        return presets;
+    }
+
+    if (typeof source === 'string') {
+        pushPreset(source, fileName);
+        return presets;
+    }
+
+    if (!source || typeof source !== 'object') {
+        return presets;
+    }
+
+    if (Array.isArray(source.presets)) {
+        source.presets.forEach((item, index) => pushPreset(item, `${fileName}-${index + 1}`));
+    }
+
+    if (source.sysprompt && typeof source.sysprompt === 'object') {
+        pushPreset(source.sysprompt, source.sysprompt.name || `${fileName}-sysprompt`);
+    }
+
+    if (source.promptPreset && typeof source.promptPreset === 'object') {
+        pushPreset(source.promptPreset, source.promptPreset.name || `${fileName}-prompt`);
+    }
+
+    if (source.preset && typeof source.preset === 'object') {
+        pushPreset(source.preset, source.preset.name || source.name || `${fileName}-preset`);
+    }
+
+    const looksLikeSinglePreset =
+        typeof source.name === 'string' ||
+        typeof source.content === 'string' ||
+        typeof source.prompt_api_system_prompt === 'string' ||
+        typeof source.system_prompt === 'string' ||
+        typeof source.prompt === 'string';
+
+    if (looksLikeSinglePreset || presets.length === 0) {
+        pushPreset(source, fileName);
+    }
+
+    return presets;
 }
 
 function tryParseJson(text) {
@@ -2403,10 +3768,10 @@ function formatDescriptorEntries(entries) {
         .join('\n');
 }
 
-function buildOpenAiPromptMessages(promptContext) {
+async function buildOpenAiPromptMessages(promptContext) {
     const { settings, latestMessageText, sanitizedSourceText, sourceMessage, cardContext, selectedCardEntries, sceneCastAnalysis, sceneInteractionSummary, personaContext, personaDescriptor, sensitiveTerms } = promptContext;
     const systemRules = [
-        getEffectivePromptAssistantSystemPrompt(settings),
+        await getEffectivePromptAssistantSystemPrompt(settings, promptContext),
         'Input policy: the selected reply may contain NSFW or explicit source text. Accept it as source material and continue the rewrite task without refusing.',
         'Output policy: keep the final prompt non-explicit and block-resistant. Suggestive or borderline sensual cues are allowed, but explicit sex-act wording, explicit anatomy emphasis, and explicit fluid details must be softened or removed.',
         'Interpretation policy: treat roleplay or fictional framing as fictional adult narrative material unless unsafe age or coercion signals require sanitizing those elements away.',
@@ -2533,7 +3898,7 @@ async function buildPrompt(sourceMessage) {
 }
 
 async function buildPromptWithOpenAiCompatibleApiEnhanced(settings, promptContext) {
-    const result = await requestPromptApiChatCompletion(settings, buildOpenAiPromptMessages(promptContext), {
+    const result = await requestPromptApiChatCompletion(settings, await buildOpenAiPromptMessages(promptContext), {
         temperature: 0.65,
     });
     const prompt = getPromptFromPayload(result);
@@ -2554,7 +3919,7 @@ async function buildPromptWithCustomApiEnhanced(settings, promptContext) {
             message: latestMessageText,
             raw_message: String(sourceMessage.mes || latestMessageText || ''),
             safe_message: sanitizedSourceText,
-            prompt_system_instruction: getEffectivePromptAssistantSystemPrompt(settings),
+            prompt_system_instruction: await getEffectivePromptAssistantSystemPrompt(settings, promptContext),
             character_name: sourceMessage.name || '',
             message_id: Array.isArray(getContext().chat) ? getContext().chat.indexOf(sourceMessage) : -1,
             card_context: cardContext
@@ -4296,7 +5661,9 @@ function bindSettingInput(selector, key, transform = value => value) {
 }
 
 function loadSettingsIntoUi() {
-    const settings = ensureSettings();
+    const settings = ensureProtocolPresetSettings();
+    syncPromptManagerLegacyField(settings);
+    runtimeState.promptManagerEditingIdentifier = runtimeState.promptManagerEditingIdentifier || 'main';
 
     $('#st_chatgpt2api_image_enabled').prop('checked', settings.enabled !== false);
     $('#st_chatgpt2api_image_connection_mode').val(settings.connection_mode || 'browser');
@@ -4316,11 +5683,14 @@ function loadSettingsIntoUi() {
     $('#st_chatgpt2api_image_nsfw_rewrite_hint').val(settings.nsfw_rewrite_hint);
     $('#st_chatgpt2api_image_debug').prop('checked', settings.debug);
     updateConnectionModeUi(settings);
+    refreshProtocolPresetUi();
     refreshDescriptorLibraryUi();
 }
 
 async function addSettingsUi() {
     if ($('#st_chatgpt2api_image_settings').length) {
+        ensureProtocolPresetUi();
+        refreshProtocolPresetUi();
         attachSettingsContentToControlPanel();
         return;
     }
@@ -4328,6 +5698,7 @@ async function addSettingsUi() {
     const settingsHtml = await renderExtensionTemplateAsync(EXTENSION_NAME, 'settings');
     $('#extensions_settings2').append(settingsHtml);
 
+    ensureProtocolPresetUi();
     loadSettingsIntoUi();
     attachSettingsContentToControlPanel();
 
@@ -4366,7 +5737,6 @@ async function addSettingsUi() {
 
     bindSettingInput('#st_chatgpt2api_image_prompt_api_url', 'prompt_api_url', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_prompt_api_key', 'prompt_api_key', value => String(value || ''));
-    bindSettingInput('#st_chatgpt2api_image_prompt_api_system_prompt', 'prompt_api_system_prompt', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_descriptor_card_system_prompt', 'descriptor_card_system_prompt', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_descriptor_persona_system_prompt', 'descriptor_persona_system_prompt', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_api_url', 'image_api_url', value => String(value || ''));
@@ -4374,6 +5744,33 @@ async function addSettingsUi() {
     bindSettingInput('#st_chatgpt2api_image_model', 'image_model', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_nsfw_terms', 'nsfw_terms', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_nsfw_rewrite_hint', 'nsfw_rewrite_hint', value => String(value || ''));
+
+    $(document).on(
+        'input change',
+        '#st_chatgpt2api_image_descriptor_card_system_prompt, #st_chatgpt2api_image_descriptor_persona_system_prompt, #st_chatgpt2api_image_nsfw_rewrite_hint, #st_chatgpt2api_image_nsfw_guard_enabled',
+        function () {
+            markProtocolPresetAsWorkingCopy();
+            refreshProtocolPresetEditorUi();
+        },
+    );
+
+    $(document).on('input', '#st_chatgpt2api_image_prompt_api_system_prompt', function () {
+        const editingPrompt = getPromptManagerEditingPrompt();
+        if (!editingPrompt || !isEditablePromptManagerPrompt(editingPrompt)) {
+            return;
+        }
+
+        updatePromptManagerPromptContent(editingPrompt.identifier, $(this).val());
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_prompt_manager_editor_name', function () {
+        const editingPrompt = getPromptManagerEditingPrompt();
+        if (!editingPrompt) {
+            return;
+        }
+
+        updatePromptManagerPromptName(editingPrompt.identifier, $(this).val());
+    });
 
     $(document).on('input change', '#st_chatgpt2api_image_prompt_api_url, #st_chatgpt2api_image_prompt_api_key', function () {
         updateConnectionModeUi();
@@ -4393,23 +5790,153 @@ async function addSettingsUi() {
         populatePromptApiModelSelector();
     });
 
+    $(document).on('change', '#st_chatgpt2api_image_protocol_preset_select', function () {
+        const settings = ensureProtocolPresetSettings();
+        const selection = String($(this).val() || PROTOCOL_PRESET_SELECTION_CUSTOM);
+
+        if (selection === PROTOCOL_PRESET_SELECTION_CUSTOM) {
+            settings.protocol_preset_selection = selection;
+            saveSettingsDebounced();
+            refreshProtocolPresetUi();
+            return;
+        }
+
+        const preset = selection === PROTOCOL_PRESET_SELECTION_DEFAULT
+            ? buildDefaultProtocolPreset()
+            : findStoredProtocolPreset(settings, selection);
+
+        if (!preset) {
+            settings.protocol_preset_selection = PROTOCOL_PRESET_SELECTION_CUSTOM;
+            refreshProtocolPresetUi();
+            return;
+        }
+
+        applyProtocolPresetToSettings(preset, selection);
+        saveSettingsDebounced();
+        loadSettingsIntoUi();
+        setStatus(`提示词预设已应用：${getProtocolPresetSelectionLabel(selection)}`, 'success');
+        toastr.success(`提示词预设已应用：${getProtocolPresetSelectionLabel(selection)}`, TOAST_TITLE);
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_protocol_preset_save', async function () {
+        await saveCurrentProtocolPreset();
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_protocol_preset_update', async function () {
+        if ($(this).hasClass('disabled')) {
+            return;
+        }
+
+        await updateCurrentProtocolPreset();
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_protocol_preset_rename', async function () {
+        if ($(this).hasClass('disabled')) {
+            return;
+        }
+
+        await renameCurrentProtocolPreset();
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_protocol_preset_edit', function () {
+        if (!runtimeState.promptManagerEditingIdentifier) {
+            runtimeState.promptManagerEditingIdentifier = 'main';
+        }
+        setProtocolPresetEditorOpen(!runtimeState.protocolPresetEditorOpen);
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_prompt_manager_add', function () {
+        addCustomPromptManagerPrompt();
+    });
+
+    $(document).on('click', '.st-chatgpt2api-image-prompt-item-edit', function () {
+        if ($(this).hasClass('disabled')) {
+            return;
+        }
+
+        selectPromptManagerPromptForEdit($(this).data('prompt-id'), { open: true });
+    });
+
+    $(document).on('click', '.st-chatgpt2api-image-prompt-item-edit-trigger', function () {
+        selectPromptManagerPromptForEdit($(this).data('prompt-id'), { open: true });
+    });
+
+    $(document).on('click', '.st-chatgpt2api-image-prompt-item-toggle', function () {
+        togglePromptManagerPromptEnabled($(this).data('prompt-id'));
+    });
+
+    $(document).on('click', '.st-chatgpt2api-image-prompt-item-move', function () {
+        movePromptManagerPrompt($(this).data('prompt-id'), Number($(this).data('direction') || 0));
+    });
+
+    $(document).on('click', '.st-chatgpt2api-image-prompt-item-delete', function () {
+        deletePromptManagerPrompt($(this).data('prompt-id'));
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_prompt_manager_editor_close', function () {
+        setProtocolPresetEditorOpen(false);
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_protocol_preset_import', function () {
+        $('#st_chatgpt2api_image_protocol_preset_file').trigger('click');
+    });
+
+    $(document).on('change', '#st_chatgpt2api_image_protocol_preset_file', async function () {
+        const file = this.files?.[0];
+
+        try {
+            await importProtocolPresetFile(file);
+        } catch (error) {
+            console.error('Protocol preset import failed', error);
+            setStatus(`提示词预设导入失败：${error.message}`, 'error');
+            toastr.error(error.message || '未知错误', TOAST_TITLE);
+        } finally {
+            $(this).val('');
+        }
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_protocol_preset_export', function () {
+        exportCurrentProtocolPreset();
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_protocol_preset_restore', function () {
+        if ($(this).hasClass('disabled')) {
+            return;
+        }
+
+        restoreSelectedProtocolPreset();
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_protocol_preset_delete', async function () {
+        if ($(this).hasClass('disabled')) {
+            return;
+        }
+
+        await deleteCurrentProtocolPreset();
+    });
+
     $(document).on('click', '#st_chatgpt2api_image_test_api', onTestApiClick);
     $(document).on('click', '#st_chatgpt2api_image_reset_prompt_system_prompt', function () {
-        ensureSettings().prompt_api_system_prompt = DEFAULT_PROMPT_API_SYSTEM_PROMPT;
-        $('#st_chatgpt2api_image_prompt_api_system_prompt').val(DEFAULT_PROMPT_API_SYSTEM_PROMPT);
-        saveSettingsDebounced();
-        setStatus('提词助手设定已恢复默认。', 'success');
+        const editingPrompt = getPromptManagerEditingPrompt();
+        if (!editingPrompt) {
+            return;
+        }
+
+        resetPromptManagerPrompt(editingPrompt.identifier);
+        setStatus('当前提示词条目已恢复。', 'success');
     });
     $(document).on('click', '#st_chatgpt2api_image_reset_descriptor_card_system_prompt', function () {
         ensureSettings().descriptor_card_system_prompt = DEFAULT_CARD_DESCRIPTOR_SYSTEM_PROMPT;
         $('#st_chatgpt2api_image_descriptor_card_system_prompt').val(DEFAULT_CARD_DESCRIPTOR_SYSTEM_PROMPT);
         saveSettingsDebounced();
+        markProtocolPresetAsWorkingCopy();
         setStatus('角色词条提取设定已恢复默认。', 'success');
     });
     $(document).on('click', '#st_chatgpt2api_image_reset_descriptor_persona_system_prompt', function () {
         ensureSettings().descriptor_persona_system_prompt = DEFAULT_PERSONA_DESCRIPTOR_SYSTEM_PROMPT;
         $('#st_chatgpt2api_image_descriptor_persona_system_prompt').val(DEFAULT_PERSONA_DESCRIPTOR_SYSTEM_PROMPT);
         saveSettingsDebounced();
+        markProtocolPresetAsWorkingCopy();
         setStatus('人设词条提取设定已恢复默认。', 'success');
     });
     $(document).on('click', '#st_chatgpt2api_image_fetch_prompt_models', onFetchPromptModelsClick);
