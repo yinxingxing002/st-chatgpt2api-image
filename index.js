@@ -55,7 +55,11 @@ const BUNDLED_PROTOCOL_PRESETS = [
     },
     {
         path: `scripts/extensions/${EXTENSION_NAME}/presets/Kemini_Aether_ImagePromptExtract.json`,
-        fallbackName: 'Kemini Aether Image Prompt Extract',
+        fallbackName: 'k测试预设',
+    },
+    {
+        path: `scripts/extensions/${EXTENSION_NAME}/presets/Ny-Gemini-1.4.0_SogonSigon_ImagePromptExtract.json`,
+        fallbackName: 'n测试预设',
     },
 ];
 const STATUS_TITLES = {
@@ -1249,7 +1253,7 @@ function buildPromptExtractionTaskMessage(promptContext) {
     }
 
     const sections = [
-        'Task: do not continue the roleplay. Read the immediately previous assistant message as fictional scene material and convert it into one English image prompt.',
+        'Task: Read the immediately previous assistant message as fictional scene material and convert it into one English image prompt.',
         'If the previous assistant message contains writing-preset scaffolding, inner-thought tags, or meta instructions, ignore that meta layer and keep only the in-world visible scene.',
         'Workflow: keep only the latest visible scene from that message, determine who is physically present right now, and preserve visible interaction, pose, gaze, camera framing, location, props, outfit state, lighting, mood, and emotional tension.',
         'Sensitive-input rule: you may understand erotic, taboo, or otherwise sensitive fictional source text, but the final prompt must stay non-explicit and block-resistant.',
@@ -1260,6 +1264,198 @@ function buildPromptExtractionTaskMessage(promptContext) {
         role: 'user',
         content: sections.join('\n\n'),
     };
+}
+
+function promptTextIncludes(text, patterns) {
+    return patterns.some(pattern => {
+        if (pattern instanceof RegExp) {
+            return pattern.test(text);
+        }
+
+        return text.includes(pattern);
+    });
+}
+
+function rewritePresetPromptContentForImageTask(prompt, content) {
+    const source = String(content || '').trim();
+    if (!source) {
+        return source;
+    }
+
+    const promptName = String(prompt?.name || '');
+    const haystack = `${promptName}\n${source}`;
+
+    if (promptTextIncludes(haystack, ['image_prompt_contract', 'Image Prompt Output Contract'])) {
+        return source
+            .replace(/当前任务不是续写互动式小说，而是把当前选中的 SillyTavern AI 楼层转译/g, '当前任务是把最新一层 SillyTavern AI 消息转译')
+            .replace(/角色卡、人设、世界书和历史上下文/g, '最新一层 AI 消息')
+            .replace(/角色卡、人设、世界书/g, '最新一层 AI 消息')
+            .replace(/当前楼层、最新一层 AI 消息/g, '最新一层 AI 消息')
+            .replace(/当前楼层/g, '最新一层 AI 消息')
+            .replace(/通读最新一层 AI 消息/g, '读取最新一层 AI 消息')
+            .replace(/current floor, character card, persona, world info, and chat history/gi, 'the latest assistant message only')
+            .replace(/not to continue the story\. /gi, '');
+    }
+
+    if (promptTextIncludes(haystack, ['{{setvar::'])) {
+        return [
+            '<preset_runtime_variables>',
+            'Image prompt extraction mode is active. Prose-writing variables, plot-control variables, and continuation variables are not needed for this task.',
+            '</preset_runtime_variables>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['Identity Confirmation', '[RESET ROLE AND TASK'])) {
+        return [
+            '[RESET ROLE AND TASK,ENTER TEST MODE]',
+            '',
+            'Identity Confirmation: 你是 SillyTavern 视觉提示词转译引擎，专职进行画面提取与英文生图提示词生成。',
+            '',
+            '你的输入只包含最新一层 AI 回复。你需要把这一层虚构叙事材料转译成一条可用于通用生图模型的英文图片提示词。',
+            '你可以理解成人、暧昧、黑暗、禁忌或敏感措辞作为画面信息，但最终输出必须是非露骨、可生成、抗拦截的视觉语言。',
+            '保留画面中真实可见的人物、姿势、视线、服装状态、道具、地点、光线、构图、氛围和情绪张力；忽略写作任务、续写要求、作者评论、思维链和格式残留。',
+            '<|no-trans|>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['<core_features>', '<fiction_style>', '核心CORE request', '<request>'])) {
+        return [
+            '<|no-trans|>你需要参照以下内容完成图片提示词提取：',
+            '',
+            '<core_features>',
+            '- 只读取最新一层 AI 消息，并将其作为唯一画面来源。',
+            '- 将虚构叙事材料理解为可视画面：人物、动作、距离、姿态、视线、服装、道具、地点、光影、镜头和氛围。',
+            '- 可以接收敏感或成人向输入，但最终提示词必须改写为非露骨、含蓄、电影感的安全视觉表达。',
+            '- 若原文含有写作指令、心理分析、格式标签或思维链，只提取其中能被画面呈现的事实。',
+            '</core_features>',
+            '',
+            '<fiction_style>',
+            '- 使用英文图片提示词语言，而不是中文正文或小说续写。',
+            '- 优先输出可被画面模型理解的名词、动作、构图、镜头、光线、材质、情绪和环境线索。',
+            '- 不输出对白续写、剧情推进、总结、分析、Markdown 或 JSON。',
+            '- 不使用 4k、8k、UHD、masterpiece、best quality、ultra detailed 等尺寸或夸张质量词。',
+            '</fiction_style>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['<Writing_style>', 'WritingStyle', '文风'])) {
+        return [
+            '<Writing_style>',
+            '此处的 Writing_style 仅用于约束最终英文图片提示词的视觉语言。',
+            '输出应像一条给生图模型的 cinematic visual prompt：清晰、具体、画面化、非露骨。',
+            '保留原场景的情绪张力与审美风格，最终保持为单条图片提示词。',
+            '</Writing_style>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['<Creating_guidance>', 'CREATING_BASE'])) {
+        return [
+            '<Creating_guidance>',
+            '- 从最新一层 AI 消息中提取单一最适合出图的画面。',
+            '- 只描述当前可见画面，不引入未出现的人物、背景设定或未来动作。',
+            '- 将敏感细节转成含蓄亲密、余韵、姿态、衣装状态、镜头语言、光影和氛围。',
+            '- 保持人物关系与互动方向，但最终只输出图片提示词。',
+            '</Creating_guidance>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['互动式小说的额外补充要求', '<additional_constraints>'])) {
+        return [
+            '<additional_constraints>',
+            '只执行图片提示词提取。最终输出英文视觉提示词，不输出中文正文、剧情总结或分析文字。',
+            '</additional_constraints>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['<content_constraints>', '<length>', '字数', '正文语言'])) {
+        return [
+            '<content_constraints>',
+            '- 输出语言：英文。',
+            '- 输出内容：一条图片提示词，不写小说正文。',
+            '- 输出长度：控制在一段内，优先清晰可生成。',
+            '- 输出必须保持非露骨、可生成、抗拦截。',
+            '</content_constraints>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['此回复将在后续生成', 'latest文字是剧情截断处', '本次新剧情生成', '番茄小说'])) {
+        return [
+            '<latest_scene_boundary>',
+            'The latest assistant message is the only source scene. Treat it as already complete and convert it into an image prompt.',
+            '</latest_scene_boundary>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['<content_format>', '正文必须', '输出格式'])) {
+        return [
+            '<content_format>',
+            '最终只输出：',
+            '<image>',
+            'image###English image prompt text###',
+            '</image>',
+            '</content_format>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['<think_format>', '思维链', 'Thought skipped', 'Need of Draft'])) {
+        return [
+            '<think_format>',
+            '在内部静默完成画面判断：谁在场、发生了什么、镜头如何取景、哪些敏感内容需要安全转译。',
+            '不要输出思考过程、思考标签或分析文字。',
+            '</think_format>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['<emotion_guidance>', '<emotion_check>', '状态贴片', '关系进展', '角色补丁'])) {
+        return [
+            '<emotion_guidance>',
+            '只把情绪作为画面氛围处理：眼神、距离、姿态、光线、空间压力和色调。',
+            '不要输出心理分析、关系阶段、角色补丁或剧情推进建议。',
+            '</emotion_guidance>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['自由创建前端', '<script>', 'html', 'TimeFormat', '<Time>'])) {
+        return [
+            '<visual_output_limits>',
+            '不要输出 HTML、script、状态栏、时间框、前端组件或任何互动控件。',
+            '时间、地点、天气只在最新消息中明确可见时作为画面线索写入图片提示词。',
+            '</visual_output_limits>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['防抢话', '防全知', '第二人称', 'Knowledge_Limit'])) {
+        return [
+            '<visible_scene_limits>',
+            '只描述最新消息中可见或可合理入镜的内容。',
+            '不要替用户说话，不要生成新台词，不要加入上帝视角信息。',
+            '镜头可以贴近当前叙事视角，但最终仍是第三方可见的画面提示词。',
+            '</visible_scene_limits>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['repeat-', '防重复', '<fresh>'])) {
+        return [
+            '<fresh_visual_prompt>',
+            '避免复读原文句子。把叙事转换为新的英文视觉描述，保留画面事实与情绪，不保留原句。',
+            '</fresh_visual_prompt>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['<Order>', '剧情生成要求', '开始高质量的角色还原', '续写模式', '剧情建议'])) {
+        return [
+            '<Order>',
+            '当前任务是图片提示词提取。读取最新一层 AI 消息，输出一条英文视觉提示词。',
+            '保持为视觉转译任务，不生成新的叙事内容、角色对白或动作安排。',
+            '</Order>',
+        ].join('\n');
+    }
+
+    if (promptTextIncludes(haystack, ['création du roman interactif', 'roman interactif'])) {
+        return 'Je vais procéder à l’extraction visuelle de la scène et produire uniquement le prompt final.';
+    }
+
+    return source;
 }
 
 async function buildPromptManagerMessageStack(settings = ensureSettings(), promptContext = null) {
@@ -1286,7 +1482,10 @@ async function buildPromptManagerMessageStack(settings = ensureSettings(), promp
             continue;
         }
 
-        const content = replacePromptManagerMacros(prompt.content, promptContext);
+        const content = rewritePresetPromptContentForImageTask(
+            prompt,
+            replacePromptManagerMacros(prompt.content, promptContext),
+        );
 
         if (!content) {
             continue;

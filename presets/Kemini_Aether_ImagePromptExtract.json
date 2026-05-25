@@ -2728,7 +2728,7 @@
                                                            }
                                          }
                    },
-    "name":  "Kemini Aether Image Prompt Extract",
-    "preset_name":  "Kemini Aether Image Prompt Extract",
+    "name":  "k测试预设",
+    "preset_name":  "k测试预设",
     "description":  "Minimal-change adaptation of Kemini Aether for ChatGPT2API Image prompt extraction."
 }

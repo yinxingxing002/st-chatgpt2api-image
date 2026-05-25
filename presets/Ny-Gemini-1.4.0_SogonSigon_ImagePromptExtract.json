@@ -1982,5 +1982,6 @@
     "seed": -1,
     "n": 1,
     "extensions": {},
-    "preset_name": "Ny-Gemini-1.4.0_SogonSigon Image Prompt Extract"
+    "name": "n测试预设",
+    "preset_name": "n测试预设"
 }
