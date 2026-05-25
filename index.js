@@ -3886,6 +3886,98 @@ async function fetchJsonOrText(url, options) {
     }
 }
 
+function getImageExtensionFromMimeType(mimeType) {
+    const normalized = String(mimeType || '').trim().split(';')[0].toLowerCase();
+
+    switch (normalized) {
+        case 'image/jpeg':
+            return 'jpg';
+        case 'image/png':
+            return 'png';
+        case 'image/webp':
+            return 'webp';
+        case 'image/gif':
+            return 'gif';
+        case 'image/bmp':
+            return 'bmp';
+        default:
+            return '';
+    }
+}
+
+function getImageExtensionFromUrl(url) {
+    try {
+        const pathname = new URL(String(url || ''), window.location.href).pathname;
+        const match = pathname.match(/\.([a-z0-9]+)$/i);
+        return match?.[1]?.toLowerCase() || '';
+    } catch {
+        return '';
+    }
+}
+
+function buildImageFetchCandidates(imageUrl, settings = ensureSettings()) {
+    const normalizedImageUrl = String(imageUrl || '').trim();
+    if (!normalizedImageUrl) {
+        return [];
+    }
+
+    if (shouldPreferTavernImageProxy(settings) && isAbsoluteHttpUrl(normalizedImageUrl)) {
+        return uniqueStrings([
+            buildSillyTavernCorsProxyUrl(normalizedImageUrl),
+            normalizedImageUrl,
+        ].filter(Boolean));
+    }
+
+    return [normalizedImageUrl];
+}
+
+function blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+            const result = String(reader.result || '');
+            resolve(result.includes(',') ? result.split(',')[1] : result);
+        };
+        reader.onerror = () => reject(reader.error || new Error('无法读取图片数据。'));
+        reader.readAsDataURL(blob);
+    });
+}
+
+async function fetchImageUrlAsBase64Payload(imageUrl, settings = ensureSettings()) {
+    const candidates = buildImageFetchCandidates(imageUrl, settings);
+    let lastError = null;
+
+    for (const candidateUrl of candidates) {
+        try {
+            const response = await fetch(candidateUrl, {
+                method: 'GET',
+                cache: 'no-store',
+            });
+
+            if (!response.ok) {
+                throw new Error(`图片地址返回异常（HTTP ${response.status}）。`);
+            }
+
+            const blob = await response.blob();
+            const base64Data = await blobToBase64(blob);
+
+            if (!base64Data) {
+                throw new Error('图片地址没有返回可用的图片数据。');
+            }
+
+            return {
+                base64Data,
+                extension: getImageExtensionFromMimeType(blob.type) || getImageExtensionFromUrl(imageUrl) || 'png',
+                imageUrl,
+            };
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError || new Error('图片地址没有返回可用的图片数据。');
+}
+
 async function buildPromptLegacy(sourceMessage) {
     const settings = ensureSettings();
     const latestMessageText = getPlainMessageText(sourceMessage);
@@ -4440,12 +4532,19 @@ async function requestImage(prompt) {
             });
 
             const base64Data = result?.data?.[0]?.b64_json;
-
-            if (!base64Data) {
-                throw new Error('生图接口没有返回可用的图片数据。');
+            if (base64Data) {
+                return {
+                    base64Data,
+                    extension: 'png',
+                };
             }
 
-            return base64Data;
+            const imageUrl = result?.data?.[0]?.url;
+            if (imageUrl) {
+                return await fetchImageUrlAsBase64Payload(imageUrl, settings);
+            }
+
+            throw new Error('生图接口没有返回可用的图片数据。');
         } catch (error) {
             lastError = error;
         }
@@ -4474,7 +4573,7 @@ async function requestImageWithSafetyRetry(prompt) {
 
     try {
         return {
-            base64Data: await requestImage(prompt),
+            ...(await requestImage(prompt)),
             promptUsed: prompt,
             safetyRetried: false,
         };
@@ -4492,7 +4591,7 @@ async function requestImageWithSafetyRetry(prompt) {
 
         try {
             return {
-                base64Data: await requestImage(safePrompt),
+                ...(await requestImage(safePrompt)),
                 promptUsed: safePrompt,
                 safetyRetried: true,
             };
@@ -4561,11 +4660,11 @@ function syncMessageExtraToCurrentSwipe(messageOrId, { persist = false } = {}) {
     return true;
 }
 
-async function attachImageToMessage(messageId, prompt, base64Data, sourceMessage) {
+async function attachImageToMessage(messageId, prompt, base64Data, sourceMessage, extension = 'png') {
     const context = getContext();
     const speakerName = sourceMessage?.name || context.name2 || 'Image';
     const fileStem = speakerName || 'Image';
-    const imagePath = await saveBase64AsFile(base64Data, fileStem, `${fileStem}_${Date.now()}`, 'png');
+    const imagePath = await saveBase64AsFile(base64Data, fileStem, `${fileStem}_${Date.now()}`, extension || 'png');
     const chat = Array.isArray(context.chat) ? context.chat : [];
     const message = chat[messageId] || sourceMessage;
     const messageElement = $(`#chat .mes[mesid="${messageId}"]`);
@@ -5336,7 +5435,13 @@ async function generateImageForSelection(prompt) {
     setBusyPhase('image', '已向 ChatGPT2API 发出生图请求，正在等待图片返回。', '生成图片');
     const imageResult = await requestImageWithSafetyRetry(trimmedPrompt);
     setBusyPhase('attach', '图片已经返回，正在挂回当前这条消息。', '挂回楼层');
-    const result = await attachImageToMessage(selected.messageId, imageResult.promptUsed, imageResult.base64Data, selected.message);
+    const result = await attachImageToMessage(
+        selected.messageId,
+        imageResult.promptUsed,
+        imageResult.base64Data,
+        selected.message,
+        imageResult.extension,
+    );
 
     setPanelPreview(result.imagePath, imageResult.promptUsed);
     if (imageResult.safetyRetried) {
