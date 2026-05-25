@@ -2812,6 +2812,7 @@ function bindControlFabDrag() {
     const ignoreSelector = 'button, input, textarea, select, a';
     const supportsPointerEvents = typeof window.PointerEvent === 'function';
     let dragState = null;
+    let releaseClickGuardTimer = null;
 
     const getClientPoint = (event) => {
         const originalEvent = event?.originalEvent || event;
@@ -2847,9 +2848,25 @@ function bindControlFabDrag() {
         $(document).off(`touchcancel${dragNamespace}`);
     };
 
-    const stopDrag = () => {
+    const stopDrag = (event) => {
         if (dragState?.moved) {
             fab.data('dragMovedAt', Date.now());
+            if (releaseClickGuardTimer) {
+                window.clearTimeout(releaseClickGuardTimer);
+            }
+
+            fab.addClass('is-dragging');
+            releaseClickGuardTimer = window.setTimeout(() => {
+                fab.removeClass('is-dragging');
+                releaseClickGuardTimer = null;
+            }, 180);
+        } else {
+            fab.removeClass('is-dragging');
+        }
+
+        if (dragState?.moved && event) {
+            event.preventDefault?.();
+            event.stopPropagation?.();
         }
 
         if (dragState?.pointerId != null && fab[0]?.releasePointerCapture) {
@@ -2861,7 +2878,6 @@ function bindControlFabDrag() {
         }
 
         dragState = null;
-        fab.removeClass('is-dragging');
         unbindDragEvents();
     };
 
@@ -3216,8 +3232,9 @@ async function addControlPanel() {
     $('#st_chatgpt2api_image_open_control_panel').on('click', openControlPanel);
     getControlFab().on('click', function (event) {
         const lastDraggedAt = Number(getControlFab().data('dragMovedAt') || 0);
-        if (Date.now() - lastDraggedAt < 250) {
+        if (Date.now() - lastDraggedAt < 550) {
             event.preventDefault();
+            event.stopImmediatePropagation();
             return;
         }
 
