@@ -4,7 +4,6 @@
     event_types,
     getRequestHeaders,
     saveSettingsDebounced,
-    updateMessageBlock,
 } from '../../../../script.js';
 import {
     extension_settings,
@@ -621,6 +620,7 @@ const runtimeState = {
     syncTimer: null,
     busyPhase: 'idle',
     mediaRefreshTimers: new Map(),
+    inlineMediaTimers: new Map(),
     chatSaveTimer: null,
     protocolPresetEditorOpen: false,
     promptManagerEditingIdentifier: '',
@@ -4957,10 +4957,6 @@ function syncManagedImageState(message, imageUrls, currentImageUrl, title = '') 
         message.extra.title = title;
     }
 
-    if (!isArrayBackedImageState(message) && !Array.isArray(message.extra.media)) {
-        return;
-    }
-
     const existingMedia = Array.isArray(message.extra.media) ? message.extra.media : [];
     const nonImageMedia = existingMedia.filter(attachment => !isImageMediaAttachment(attachment));
     const imageAttachmentMap = new Map(
@@ -4978,17 +4974,28 @@ function syncManagedImageState(message, imageUrls, currentImageUrl, title = '') 
         };
     });
 
-    message.extra.media = [...nonImageMedia, ...nextImageMedia];
+    const mergedMedia = [...nonImageMedia, ...nextImageMedia];
+    message.extra.media = mergedMedia;
 
     if (activeUrl) {
         const activeIndex = finalUrls.indexOf(activeUrl);
         if (activeIndex > -1) {
             message.extra.media_index = nonImageMedia.length + activeIndex;
         }
+    } else if (!mergedMedia.length) {
+        delete message.extra.media_index;
+    } else if (!Number.isInteger(message.extra.media_index) || message.extra.media_index >= mergedMedia.length) {
+        message.extra.media_index = Math.max(0, mergedMedia.length - 1);
     }
 
     if (nextImageMedia.length > 1) {
         message.extra.media_display = 'gallery';
+    } else if (nextImageMedia.length === 1) {
+        message.extra.media_display = typeof message.extra.media_display === 'string' && message.extra.media_display.trim()
+            ? message.extra.media_display
+            : 'gallery';
+    } else if (!nonImageMedia.length) {
+        delete message.extra.media_display;
     }
 }
 
@@ -5051,18 +5058,18 @@ async function attachImageToMessage(messageId, prompt, base64Data, sourceMessage
     };
     syncMessageExtraToCurrentSwipe(message);
 
-    // We are only attaching media here. Re-rendering mes_text will wipe the inline
-    // slot/button DOM and make the image rely on later recovery passes to move back
-    // into place, which is the main reason some chats only show the image after refresh.
-    updateMessageBlock(messageId, message, { rerenderMessage: false });
+    appendMediaToMessage(message, messageElement, false);
     await waitForMountedMessageMedia(messageId);
     syncMessageActionButton(messageId);
-    await refreshMessageMediaPresentation(messageId, { retryBrokenImage: true, useCacheBust: true });
+    restoreMessageTextVisibility(messageId);
+    applyInlineMediaPlacement(messageId);
+    scheduleInlineMediaReconcile(messageId);
     scheduleMessageMediaRefresh(messageId, { retryBrokenImage: true });
     await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, messageId, 'extension');
     await context.saveChat();
     syncMessageActionButton(messageId);
     scheduleSyncAllMessageActionButtons();
+    scheduleInlineMediaReconcile(messageId);
     scheduleMessageMediaRefresh(messageId, { retryBrokenImage: true });
 
     return { imagePath, messageId };
@@ -6115,6 +6122,65 @@ function scheduleMessageMediaRefresh(messageId, { retryBrokenImage = false } = {
     runtimeState.mediaRefreshTimers.set(normalizedId, timers);
 }
 
+function clearInlineMediaReconcileTimer(messageId) {
+    const normalizedId = normalizeMessageId(messageId);
+    if (normalizedId === null) {
+        return;
+    }
+
+    const timer = runtimeState.inlineMediaTimers.get(normalizedId);
+    if (timer) {
+        window.clearTimeout(timer);
+        runtimeState.inlineMediaTimers.delete(normalizedId);
+    }
+}
+
+function reconcileInlineMediaPresentation(messageId) {
+    const normalizedId = normalizeMessageId(messageId);
+    if (normalizedId === null) {
+        return false;
+    }
+
+    const message = getMessageById(normalizedId);
+    const messageElement = $(`#chat .mes[mesid="${normalizedId}"]`);
+    if (!message || !messageElement.length) {
+        return false;
+    }
+
+    if (message.extra?.chatgpt2api_image_meta) {
+        syncMessageActionButton(normalizedId);
+    }
+
+    if (!getCurrentMessageImagePath(message) && !hasMountedMessageMedia(messageElement)) {
+        return false;
+    }
+
+    restoreMessageTextVisibility(normalizedId);
+    applyInlineMediaPlacement(normalizedId);
+
+    if (runtimeState.selectedMessageId === normalizedId) {
+        updatePanelSelection(false);
+    }
+
+    return true;
+}
+
+function scheduleInlineMediaReconcile(messageId, delay = 40) {
+    const normalizedId = normalizeMessageId(messageId);
+    if (normalizedId === null) {
+        return;
+    }
+
+    clearInlineMediaReconcileTimer(normalizedId);
+
+    const timer = window.setTimeout(() => {
+        runtimeState.inlineMediaTimers.delete(normalizedId);
+        reconcileInlineMediaPresentation(normalizedId);
+    }, Math.max(0, Number(delay) || 0));
+
+    runtimeState.inlineMediaTimers.set(normalizedId, timer);
+}
+
 function ensureInlineSlot(textContainer, messageId, inlineAnchor) {
     if (!textContainer.length || !inlineAnchor?.anchor?.length) {
         return $();
@@ -6237,10 +6303,11 @@ function syncMessageActionButton(messageId) {
     }
 
     const inlineAnchor = getInlineButtonAnchor(messageElement, messageId, message);
-    const hasInlineImage = messageElement.find('.mes_img_container').length > 0;
+    const hasManagedImage = !!message?.extra?.chatgpt2api_image_meta
+        && (!!getCurrentMessageImagePath(message) || hasMountedMessageMedia(messageElement));
 
     if (!isInlineImageButtonEnabled()) {
-        if (message?.extra?.chatgpt2api_image_meta || hasInlineImage) {
+        if (message?.extra?.chatgpt2api_image_meta || hasManagedImage) {
             const inlineSlot = inlineAnchor?.anchor?.length
                 ? ensureInlineSlot(anchor, messageId, inlineAnchor)
                 : getExistingInlineSlot(anchor, messageId);
@@ -6276,7 +6343,7 @@ function syncMessageActionButton(messageId) {
     }
 
     const hasInlineSlot = anchor.find(`> ${MESSAGE_INLINE_SLOT_SELECTOR}[data-st-message-id="${messageId}"]`).length > 0;
-    if (message?.extra?.chatgpt2api_image_meta || hasInlineImage || hasInlineSlot) {
+    if (message?.extra?.chatgpt2api_image_meta || hasManagedImage || hasInlineSlot) {
         restoreMessageTextVisibility(messageId);
         applyInlineMediaPlacement(messageId);
     }
@@ -6338,6 +6405,7 @@ async function onInlineImageSwiped({ message, element, direction }) {
     appendMediaToMessage(message, element, false);
     restoreMessageTextVisibility(normalizedMessageId);
     applyInlineMediaPlacement(normalizedMessageId);
+    scheduleInlineMediaReconcile(normalizedMessageId);
     scheduleMessageMediaRefresh(normalizedMessageId, { retryBrokenImage: true });
 
     if (runtimeState.selectedMessageId !== null && getMessageById(runtimeState.selectedMessageId) === message) {
@@ -6358,11 +6426,44 @@ function observeChatMutations() {
         return;
     }
 
-    runtimeState.chatObserver = new MutationObserver(() => {
-        scheduleSyncAllMessageActionButtons();
+    runtimeState.chatObserver = new MutationObserver(mutations => {
+        let shouldSyncAll = false;
+        const reconciledMessageIds = new Set();
+
+        for (const mutation of mutations) {
+            if (mutation.type !== 'childList') {
+                continue;
+            }
+
+            const targetElement = mutation.target instanceof Element ? mutation.target : null;
+            const addedMes = Array.from(mutation.addedNodes || []).some(node => node instanceof Element && node.matches('.mes'));
+            const removedMes = Array.from(mutation.removedNodes || []).some(node => node instanceof Element && node.matches('.mes'));
+
+            if (targetElement?.id === 'chat' || addedMes || removedMes) {
+                shouldSyncAll = true;
+            }
+
+            if (!targetElement?.closest('.mes_media_wrapper')) {
+                continue;
+            }
+
+            const messageElement = targetElement.closest('.mes');
+            const messageId = normalizeMessageId(messageElement?.getAttribute('mesid'));
+            if (messageId !== null) {
+                reconciledMessageIds.add(messageId);
+            }
+        }
+
+        if (shouldSyncAll) {
+            scheduleSyncAllMessageActionButtons();
+        }
+
+        for (const messageId of reconciledMessageIds) {
+            scheduleInlineMediaReconcile(messageId);
+        }
     });
 
-    runtimeState.chatObserver.observe(chatElement, { childList: true });
+    runtimeState.chatObserver.observe(chatElement, { childList: true, subtree: true });
 }
 
 function ensurePromptApiConfigured(settings = ensureSettings()) {
@@ -7117,6 +7218,7 @@ function bindChatLifecycleEvents() {
         syncMessageActionButton(normalizedId);
         syncMessageExtraToCurrentSwipe(normalizedId, { persist: true });
         scheduleMessageMediaRefresh(normalizedId, { retryBrokenImage: true });
+        scheduleInlineMediaReconcile(normalizedId);
         updateInteractiveState();
     });
 
@@ -7129,6 +7231,7 @@ function bindChatLifecycleEvents() {
         syncMessageActionButton(normalizedId);
         syncMessageExtraToCurrentSwipe(normalizedId, { persist: true });
         scheduleMessageMediaRefresh(normalizedId, { retryBrokenImage: true });
+        scheduleInlineMediaReconcile(normalizedId);
         if (normalizedId === runtimeState.selectedMessageId) {
             updatePanelSelection(false);
         }
@@ -7143,6 +7246,7 @@ function bindChatLifecycleEvents() {
         syncMessageActionButton(normalizedId);
         syncMessageExtraToCurrentSwipe(normalizedId, { persist: true });
         scheduleMessageMediaRefresh(normalizedId, { retryBrokenImage: true });
+        scheduleInlineMediaReconcile(normalizedId);
         if (normalizedId === runtimeState.selectedMessageId) {
             updatePanelSelection(false);
         }
