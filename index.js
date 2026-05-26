@@ -3,6 +3,7 @@
     eventSource,
     event_types,
     getRequestHeaders,
+    reloadCurrentChat,
     saveSettingsDebounced,
 } from '../../../../script.js';
 import {
@@ -621,7 +622,9 @@ const runtimeState = {
     busyPhase: 'idle',
     mediaRefreshTimers: new Map(),
     inlineMediaTimers: new Map(),
+    autoReloadedImageRevisions: new Map(),
     chatSaveTimer: null,
+    softReloadInFlight: false,
     protocolPresetEditorOpen: false,
     promptManagerEditingIdentifier: '',
 };
@@ -5533,6 +5536,47 @@ function updateInteractiveState() {
                 .text(busyMeta.label);
         }
     }
+
+    updateSoftReloadButtonState();
+}
+
+function ensurePanelReloadAction() {
+    const actions = getPanel().find('.st-chatgpt2api-image-panel-actions').first();
+    if (!actions.length || $('#st_chatgpt2api_image_panel_reload_chat').length) {
+        return;
+    }
+
+    actions.append(`
+        <div id="st_chatgpt2api_image_panel_reload_chat" class="menu_button menu_button_icon st-chatgpt2api-image-panel-action">
+            <span class="st-chatgpt2api-image-panel-action-icon">
+                <i class="fa-solid fa-rotate-right"></i>
+            </span>
+            <span class="st-chatgpt2api-image-panel-action-copy">
+                <span class="st-chatgpt2api-image-panel-action-label">重载当前聊天</span>
+                <small>图片没及时显示时，用它快速补挂</small>
+            </span>
+        </div>
+    `);
+}
+
+function updateSoftReloadButtonState() {
+    const button = $('#st_chatgpt2api_image_panel_reload_chat');
+    if (!button.length) {
+        return;
+    }
+
+    const isDisabled = runtimeState.softReloadInFlight || isGenerating;
+    button
+        .toggleClass('disabled', isDisabled)
+        .attr('aria-disabled', String(isDisabled));
+
+    button.find('.st-chatgpt2api-image-panel-action-label')
+        .text(runtimeState.softReloadInFlight ? '重载中' : '重载当前聊天');
+
+    button.find('small')
+        .text(runtimeState.softReloadInFlight
+            ? '正在重新载入聊天并补挂图片'
+            : '图片没及时显示时，用它快速补挂');
 }
 
 function updatePanelSelection(resetPrompt = false) {
@@ -5697,6 +5741,9 @@ async function addControlPanel() {
 
 async function addFloatingPanel() {
     if (getPanel().length) {
+        ensurePanelReloadAction();
+        $('#st_chatgpt2api_image_panel_reload_chat').off('click').on('click', onReloadChatClick);
+        updateSoftReloadButtonState();
         return;
     }
 
@@ -5707,6 +5754,7 @@ async function addFloatingPanel() {
     const panel = getPanel();
 
     loadMovingUIState();
+    ensurePanelReloadAction();
 
     $('#st_chatgpt2api_image_panel_close').on('click', closeFloatingPanel);
     $('#st_chatgpt2api_image_panel_maximize').on('click', toggleFloatingPanelMaximize);
@@ -5714,6 +5762,7 @@ async function addFloatingPanel() {
     $('#st_chatgpt2api_image_panel_generate_prompt').on('click', onGeneratePromptClick);
     $('#st_chatgpt2api_image_panel_generate_image').on('click', onGenerateImageClick);
     $('#st_chatgpt2api_image_panel_generate_all').on('click', onGenerateAllClick);
+    $('#st_chatgpt2api_image_panel_reload_chat').on('click', onReloadChatClick);
 
     updatePanelSelection(true);
     setStatus('选中一条消息后即可开始。');
@@ -5755,6 +5804,113 @@ function ensureSelectedMessage() {
     runtimeState.selectedMessageId = latestEntry.messageId;
     updatePanelSelection(true);
     return latestEntry;
+}
+
+function hasUsableMessageMedia(messageId) {
+    const normalizedId = normalizeMessageId(messageId);
+    if (normalizedId === null) {
+        return false;
+    }
+
+    const messageElement = $(`#chat .mes[mesid="${normalizedId}"]`);
+    if (!messageElement.length || !hasMountedMessageMedia(messageElement)) {
+        return false;
+    }
+
+    const imageElement = messageElement.find('.mes_media_wrapper .mes_img, .mes_img_container .mes_img').last();
+    return !isBrokenMessageImage(imageElement);
+}
+
+async function softReloadCurrentChat({ focusMessageId = null, preservePanel = true, auto = false } = {}) {
+    if (runtimeState.softReloadInFlight) {
+        return false;
+    }
+
+    const normalizedId = normalizeMessageId(focusMessageId);
+    const shouldReopenPanel = preservePanel && isPanelVisible();
+    runtimeState.softReloadInFlight = true;
+    updateSoftReloadButtonState();
+
+    try {
+        setStatus(
+            auto ? '图片已生成，但还没稳定挂回，正在重载当前聊天。' : '正在重载当前聊天，请稍等片刻。',
+            'busy',
+            '重载聊天',
+        );
+
+        await getContext().saveChat();
+        await reloadCurrentChat();
+
+        repairCurrentChatImageSwipeMetadata();
+        scheduleSyncAllMessageActionButtons();
+
+        if (normalizedId !== null && getMessageById(normalizedId)) {
+            selectMessage(normalizedId, { openPanel: shouldReopenPanel });
+            scheduleInlineMediaReconcile(normalizedId, 120);
+            window.setTimeout(() => scheduleInlineMediaReconcile(normalizedId, 520), 520);
+        } else if (shouldReopenPanel) {
+            openFloatingPanel();
+        }
+
+        setStatus(
+            auto ? '聊天已重载，正在重新补挂图片。' : '当前聊天已重载。',
+            'success',
+            auto ? '补挂完成' : '重载完成',
+        );
+
+        return true;
+    } catch (error) {
+        console.error('Soft chat reload failed', error);
+        setStatus(`重载聊天失败：${error.message}`, 'error');
+        toastr.error(error.message || '未知错误', TOAST_TITLE);
+        return false;
+    } finally {
+        runtimeState.softReloadInFlight = false;
+        updateSoftReloadButtonState();
+    }
+}
+
+async function maybeAutoSoftReloadForMissingMedia(messageId) {
+    const normalizedId = normalizeMessageId(messageId);
+    if (normalizedId === null || runtimeState.softReloadInFlight) {
+        return false;
+    }
+
+    const message = getMessageById(normalizedId);
+    const revision = Number(message?.extra?.chatgpt2api_image_meta?.updatedAt || 0);
+    if (!message?.extra?.chatgpt2api_image_meta || !getCurrentMessageImagePath(message) || !revision) {
+        return false;
+    }
+
+    if (runtimeState.autoReloadedImageRevisions.get(normalizedId) === revision) {
+        return false;
+    }
+
+    if (Date.now() - revision < 1800) {
+        return false;
+    }
+
+    if (hasUsableMessageMedia(normalizedId)) {
+        return false;
+    }
+
+    runtimeState.autoReloadedImageRevisions.set(normalizedId, revision);
+    toastr.info('图片已经生成，但挂回不稳定，扩展正在自动重载当前聊天补挂。', TOAST_TITLE);
+    return await softReloadCurrentChat({ focusMessageId: normalizedId, preservePanel: true, auto: true });
+}
+
+async function onReloadChatClick() {
+    const button = $('#st_chatgpt2api_image_panel_reload_chat');
+    if (button.hasClass('disabled')) {
+        return;
+    }
+
+    const selected = ensureSelectedMessage();
+    if (!selected) {
+        return;
+    }
+
+    await softReloadCurrentChat({ focusMessageId: selected.messageId, preservePanel: true, auto: false });
 }
 
 async function runWithBusyState(task, startStatus) {
@@ -6116,6 +6272,7 @@ function scheduleMessageMediaRefresh(messageId, { retryBrokenImage = false } = {
 
         if (index === MEDIA_REFRESH_RETRY_DELAYS.length - 1) {
             clearMessageMediaRefreshTimers(normalizedId);
+            await maybeAutoSoftReloadForMissingMedia(normalizedId);
         }
     }, delay));
 
