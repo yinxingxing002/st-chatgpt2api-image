@@ -219,6 +219,40 @@
                     placeholder='[{"name":"角色名","aliases":["别名"],"descriptor":"稳定描述词"}]'
                 ></textarea>
             </div>
+            <div class="st-chatgpt2api-image-candidate-shell m-t-1">
+                <div class="st-chatgpt2api-image-card-header">
+                    <div>
+                        <div class="st-chatgpt2api-image-card-title">可选来源条目</div>
+                        <small class="st-chatgpt2api-image-help">
+                            这里会列出当前角色书、绿灯条目和绑定世界书条目。提取时会固定带上角色卡正文，再额外带上你勾选的这些来源。
+                        </small>
+                    </div>
+                    <small id="st_chatgpt2api_image_card_candidate_summary" class="st-chatgpt2api-image-help">还没有载入候选条目</small>
+                </div>
+                <div class="st-chatgpt2api-image-candidate-tools flex-container gap5px flexWrap m-t-1">
+                    <div id="st_chatgpt2api_image_refresh_card_candidates" class="menu_button menu_button_icon">
+                        <i class="fa-solid fa-arrows-rotate"></i>
+                        <span>刷新候选</span>
+                    </div>
+                    <div id="st_chatgpt2api_image_select_recommended_card_candidates" class="menu_button menu_button_icon">
+                        <i class="fa-solid fa-star"></i>
+                        <span>选择推荐</span>
+                    </div>
+                    <div id="st_chatgpt2api_image_select_activated_card_candidates" class="menu_button menu_button_icon">
+                        <i class="fa-solid fa-lightbulb"></i>
+                        <span>只选绿灯</span>
+                    </div>
+                    <div id="st_chatgpt2api_image_select_all_card_candidates" class="menu_button menu_button_icon">
+                        <i class="fa-solid fa-list-check"></i>
+                        <span>全选全部</span>
+                    </div>
+                    <div id="st_chatgpt2api_image_clear_card_candidate_selection" class="menu_button menu_button_icon">
+                        <i class="fa-solid fa-eraser"></i>
+                        <span>清空勾选</span>
+                    </div>
+                </div>
+                <div id="st_chatgpt2api_image_card_candidate_list" class="m-t-1"></div>
+            </div>
         </div>
 
         <div class="st-chatgpt2api-image-card m-t-1">

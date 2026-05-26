@@ -625,6 +625,12 @@ const runtimeState = {
     autoReloadedImageRevisions: new Map(),
     chatSaveTimer: null,
     softReloadInFlight: false,
+    cardDescriptorCandidateCardKey: '',
+    cardDescriptorCandidates: [],
+    cardDescriptorSelectedCandidateIds: [],
+    cardDescriptorCandidateLoading: false,
+    cardDescriptorCandidateError: '',
+    cardDescriptorCandidateRequestId: 0,
     protocolPresetEditorOpen: false,
     promptManagerEditingIdentifier: '',
 };
@@ -3291,6 +3297,135 @@ function buildEmbeddedCharacterBookSourceBlocks(characters) {
         .filter(Boolean);
 }
 
+function getWorldInfoEntryPrimaryKeys(entry) {
+    return uniqueStrings(Array.isArray(entry?.key) ? entry.key : []);
+}
+
+function getWorldInfoEntrySecondaryKeys(entry) {
+    return uniqueStrings(Array.isArray(entry?.keysecondary) ? entry.keysecondary : []);
+}
+
+function buildWorldInfoEntrySignature(entry, fallbackWorld = '') {
+    const worldLabel = String(entry?.world || fallbackWorld || '').trim().toLowerCase();
+    const comment = normalizeWhitespace(entry?.comment || '').toLowerCase();
+    const content = normalizeWhitespace(entry?.content || '').toLowerCase();
+    const primaryKeys = getWorldInfoEntryPrimaryKeys(entry).map(key => key.toLowerCase()).join('|');
+    const secondaryKeys = getWorldInfoEntrySecondaryKeys(entry).map(key => key.toLowerCase()).join('|');
+
+    return [worldLabel, comment, primaryKeys, secondaryKeys, content].join('::');
+}
+
+function buildWorldInfoEntryHeading(entry) {
+    const comment = String(entry?.comment || '').trim();
+    if (comment) {
+        return comment;
+    }
+
+    const primaryKeys = getWorldInfoEntryPrimaryKeys(entry);
+    if (primaryKeys.length) {
+        return primaryKeys.slice(0, 3).join(' / ');
+    }
+
+    const secondaryKeys = getWorldInfoEntrySecondaryKeys(entry);
+    if (secondaryKeys.length) {
+        return secondaryKeys.slice(0, 3).join(' / ');
+    }
+
+    const content = normalizeWhitespace(entry?.content || '');
+    if (content) {
+        return trimDescriptorForPrompt(content, 80);
+    }
+
+    return '未命名条目';
+}
+
+function buildWorldInfoEntryPreview(entry) {
+    const previewParts = [];
+    const primaryKeys = getWorldInfoEntryPrimaryKeys(entry);
+    const secondaryKeys = getWorldInfoEntrySecondaryKeys(entry);
+    const content = normalizeWhitespace(entry?.content || '');
+
+    if (primaryKeys.length) {
+        previewParts.push(`关键词: ${primaryKeys.slice(0, 4).join(', ')}`);
+    }
+
+    if (secondaryKeys.length) {
+        previewParts.push(`附加词: ${secondaryKeys.slice(0, 4).join(', ')}`);
+    }
+
+    if (content) {
+        previewParts.push(trimDescriptorForPrompt(content, 180));
+    }
+
+    return previewParts.join(' · ').trim();
+}
+
+function buildWorldInfoEntrySourceText(entry, sourceLabel = '') {
+    const entryText = formatWorldInfoEntries([entry], {
+        maxEntries: 1,
+        maxChars: 4000,
+        includeWorldLabel: true,
+    });
+
+    if (!entryText) {
+        return '';
+    }
+
+    return sourceLabel
+        ? [`Source: ${sourceLabel}`, entryText].join('\n')
+        : entryText;
+}
+
+function createCardDescriptorCandidate({
+    entry,
+    sourceKind,
+    sourceLabel,
+    fallbackWorld = '',
+    badges = [],
+    defaultSelected = false,
+    activated = false,
+}) {
+    const signature = buildWorldInfoEntrySignature(entry, fallbackWorld);
+    const worldLabel = String(entry?.world || fallbackWorld || '').trim();
+
+    return {
+        id: signature,
+        signature,
+        sourceKind,
+        sourceLabel: String(sourceLabel || '').trim(),
+        worldLabel,
+        title: buildWorldInfoEntryHeading(entry),
+        preview: buildWorldInfoEntryPreview(entry),
+        text: buildWorldInfoEntrySourceText({
+            ...entry,
+            world: String(entry?.world || fallbackWorld || '').trim(),
+        }, sourceLabel),
+        badges: uniqueStrings(badges),
+        defaultSelected: !!defaultSelected,
+        activated: !!activated,
+        sortRank: activated ? 0 : sourceKind === 'embedded' ? 1 : 2,
+    };
+}
+
+function mergeCardDescriptorCandidate(existingCandidate, nextCandidate) {
+    if (!existingCandidate) {
+        return { ...nextCandidate };
+    }
+
+    return {
+        ...existingCandidate,
+        sourceLabel: existingCandidate.sourceLabel || nextCandidate.sourceLabel,
+        worldLabel: existingCandidate.worldLabel || nextCandidate.worldLabel,
+        title: existingCandidate.title || nextCandidate.title,
+        preview: existingCandidate.preview || nextCandidate.preview,
+        text: existingCandidate.text || nextCandidate.text,
+        badges: uniqueStrings([...(existingCandidate.badges || []), ...(nextCandidate.badges || [])]),
+        defaultSelected: existingCandidate.defaultSelected || nextCandidate.defaultSelected,
+        activated: existingCandidate.activated || nextCandidate.activated,
+        sortRank: Math.min(existingCandidate.sortRank ?? 9, nextCandidate.sortRank ?? 9),
+    };
+}
+
 function getCharacterBoundWorldNames(character) {
     const names = [];
     const primaryWorld = String(character?.data?.extensions?.world || '').trim();
@@ -3354,6 +3489,35 @@ async function loadWorldBookSourceBlocks(bookNames, context = getContext(), { ma
     }
 
     return blocks;
+}
+
+async function loadWorldBookEntriesDetailed(bookNames, context = getContext()) {
+    const results = [];
+
+    for (const bookName of uniqueStrings(bookNames)) {
+        try {
+            const data = await context.loadWorldInfo(bookName);
+            const entries = getBookEntriesList(data);
+
+            for (const entry of entries) {
+                if (!entry || entry.disable === true || entry.enabled === false) {
+                    continue;
+                }
+
+                results.push({
+                    bookName,
+                    entry: {
+                        ...entry,
+                        world: String(entry?.world || bookName || '').trim(),
+                    },
+                });
+            }
+        } catch (error) {
+            console.warn('Failed to load world lorebook entries for descriptor extraction', bookName, error);
+        }
+    }
+
+    return results;
 }
 
 async function preloadWorldBooks(bookNames, context = getContext()) {
@@ -3519,13 +3683,228 @@ async function buildActivatedLoreSourceBlock({
     ].join('\n\n');
 }
 
-async function buildCardDescriptorExtractionSource(cardContext) {
+function resetCardDescriptorCandidateState(cardKey = '') {
+    runtimeState.cardDescriptorCandidateCardKey = String(cardKey || '');
+    runtimeState.cardDescriptorCandidates = [];
+    runtimeState.cardDescriptorSelectedCandidateIds = [];
+    runtimeState.cardDescriptorCandidateError = '';
+}
+
+function setCardDescriptorCandidates(cardContext, candidates, { preserveSelection = true } = {}) {
+    const cardKey = String(cardContext?.key || '');
+    const previousSelected = preserveSelection && runtimeState.cardDescriptorCandidateCardKey === cardKey
+        ? new Set(runtimeState.cardDescriptorSelectedCandidateIds)
+        : new Set();
+    const normalizedCandidates = Array.isArray(candidates) ? candidates.filter(candidate => candidate?.id && candidate?.text) : [];
+
+    runtimeState.cardDescriptorCandidateCardKey = cardKey;
+    runtimeState.cardDescriptorCandidates = normalizedCandidates;
+
+    let selectedIds = normalizedCandidates
+        .filter(candidate => previousSelected.has(candidate.id))
+        .map(candidate => candidate.id);
+
+    if (!selectedIds.length) {
+        selectedIds = normalizedCandidates
+            .filter(candidate => candidate.defaultSelected)
+            .map(candidate => candidate.id);
+    }
+
+    runtimeState.cardDescriptorSelectedCandidateIds = uniqueStrings(selectedIds);
+}
+
+function getSelectedCardDescriptorCandidates(cardContext = getCurrentCardContext(), candidates = null) {
+    if (!cardContext || runtimeState.cardDescriptorCandidateCardKey !== cardContext.key) {
+        return [];
+    }
+
+    const availableCandidates = Array.isArray(candidates) ? candidates : runtimeState.cardDescriptorCandidates;
+    const selectedIds = new Set(runtimeState.cardDescriptorSelectedCandidateIds);
+    return availableCandidates.filter(candidate => selectedIds.has(candidate.id));
+}
+
+async function collectCardDescriptorSourceCandidates(cardContext) {
+    if (!cardContext) {
+        return [];
+    }
+
+    const context = getContext();
+    const personaContext = getCurrentPersonaContext();
+    const characters = getCurrentCardCharacterRecords(context);
+    const relevantWorldNames = getCardWorldBookNames(cardContext, context);
+    const candidatesById = new Map();
+
+    const upsertCandidate = candidate => {
+        if (!candidate?.id || !candidate.text) {
+            return;
+        }
+
+        candidatesById.set(
+            candidate.id,
+            mergeCardDescriptorCandidate(candidatesById.get(candidate.id), candidate),
+        );
+    };
+
+    for (const character of characters) {
+        const book = character?.data?.character_book;
+        if (!book) {
+            continue;
+        }
+
+        const bookName = String(book.name || character?.name || 'Character Book').trim();
+        const entries = getBookEntriesList(book);
+
+        for (const entry of entries) {
+            if (!entry || entry.disable === true || entry.enabled === false) {
+                continue;
+            }
+
+            upsertCandidate(createCardDescriptorCandidate({
+                entry,
+                sourceKind: 'embedded',
+                sourceLabel: `角色书 · ${bookName}`,
+                fallbackWorld: bookName,
+                badges: ['角色书'],
+                defaultSelected: true,
+            }));
+        }
+    }
+
+    const activatedEntries = await getActivatedWorldInfoEntries(cardContext, personaContext, context, { relevantWorldNames });
+    const matchingActivated = filterWorldInfoEntriesByWorld(activatedEntries, relevantWorldNames);
+    const chosenActivatedEntries = matchingActivated.length ? matchingActivated : activatedEntries;
+
+    for (const entry of chosenActivatedEntries) {
+        upsertCandidate(createCardDescriptorCandidate({
+            entry,
+            sourceKind: 'activated',
+            sourceLabel: `绿灯条目 · ${String(entry?.world || '当前聊天').trim() || '当前聊天'}`,
+            fallbackWorld: String(entry?.world || relevantWorldNames[0] || '当前聊天').trim(),
+            badges: ['绿灯'],
+            defaultSelected: true,
+            activated: true,
+        }));
+    }
+
+    const worldBookEntries = await loadWorldBookEntriesDetailed(relevantWorldNames, context);
+    for (const item of worldBookEntries) {
+        upsertCandidate(createCardDescriptorCandidate({
+            entry: item.entry,
+            sourceKind: 'world',
+            sourceLabel: `世界书 · ${item.bookName}`,
+            fallbackWorld: item.bookName,
+            badges: ['世界书'],
+            defaultSelected: false,
+        }));
+    }
+
+    return Array.from(candidatesById.values())
+        .sort((left, right) => {
+            const rankDiff = (left.sortRank ?? 9) - (right.sortRank ?? 9);
+            if (rankDiff !== 0) {
+                return rankDiff;
+            }
+
+            const sourceDiff = String(left.sourceLabel || '').localeCompare(String(right.sourceLabel || ''), 'zh-Hans-CN');
+            if (sourceDiff !== 0) {
+                return sourceDiff;
+            }
+
+            return String(left.title || '').localeCompare(String(right.title || ''), 'zh-Hans-CN');
+        });
+}
+
+async function refreshCardDescriptorCandidates({ force = false } = {}) {
+    const cardContext = getCurrentCardContext();
+
+    if (!cardContext) {
+        resetCardDescriptorCandidateState('');
+        renderCardDescriptorCandidateList();
+        return [];
+    }
+
+    if (!force && runtimeState.cardDescriptorCandidateLoading && runtimeState.cardDescriptorCandidateCardKey === cardContext.key) {
+        return runtimeState.cardDescriptorCandidates;
+    }
+
+    if (!force
+        && runtimeState.cardDescriptorCandidateCardKey === cardContext.key
+        && runtimeState.cardDescriptorCandidates.length
+        && !runtimeState.cardDescriptorCandidateError) {
+        renderCardDescriptorCandidateList();
+        return runtimeState.cardDescriptorCandidates;
+    }
+
+    if (runtimeState.cardDescriptorCandidateCardKey !== cardContext.key) {
+        resetCardDescriptorCandidateState(cardContext.key);
+    }
+
+    const requestId = ++runtimeState.cardDescriptorCandidateRequestId;
+    runtimeState.cardDescriptorCandidateLoading = true;
+    runtimeState.cardDescriptorCandidateError = '';
+    renderCardDescriptorCandidateList();
+
+    try {
+        const candidates = await collectCardDescriptorSourceCandidates(cardContext);
+        if (requestId !== runtimeState.cardDescriptorCandidateRequestId) {
+            return candidates;
+        }
+
+        setCardDescriptorCandidates(cardContext, candidates, { preserveSelection: true });
+        runtimeState.cardDescriptorCandidateError = '';
+        return candidates;
+    } catch (error) {
+        if (requestId === runtimeState.cardDescriptorCandidateRequestId) {
+            runtimeState.cardDescriptorCandidateError = error.message || '未知错误';
+        }
+        throw error;
+    } finally {
+        if (requestId === runtimeState.cardDescriptorCandidateRequestId) {
+            runtimeState.cardDescriptorCandidateLoading = false;
+            renderCardDescriptorCandidateList();
+        }
+    }
+}
+
+function ensureCardDescriptorCandidatesFresh(cardContext = getCurrentCardContext()) {
+    if (!cardContext) {
+        resetCardDescriptorCandidateState('');
+        renderCardDescriptorCandidateList();
+        return;
+    }
+
+    const shouldRefresh = runtimeState.cardDescriptorCandidateCardKey !== cardContext.key
+        || (!runtimeState.cardDescriptorCandidateLoading && !runtimeState.cardDescriptorCandidates.length && !runtimeState.cardDescriptorCandidateError);
+
+    if (shouldRefresh) {
+        void refreshCardDescriptorCandidates({ force: runtimeState.cardDescriptorCandidateCardKey !== cardContext.key });
+    } else {
+        renderCardDescriptorCandidateList();
+    }
+}
+
+async function buildCardDescriptorExtractionSource(cardContext, { selectedCandidates = null } = {}) {
     const context = getContext();
     const characters = getCurrentCardCharacterRecords(context);
     const sections = [];
 
     if (cardContext?.sourceText) {
         sections.push(`Character card source:\n${cardContext.sourceText}`);
+    }
+
+    if (Array.isArray(selectedCandidates)) {
+        const selectedTexts = selectedCandidates
+            .map(candidate => String(candidate?.text || '').trim())
+            .filter(Boolean);
+
+        if (selectedTexts.length) {
+            sections.push([
+                'User-selected supporting lore and character-book entries:',
+                selectedTexts.join('\n\n'),
+            ].join('\n\n'));
+        }
+
+        return sections.join('\n\n').slice(0, 32000);
     }
 
     const embeddedCharacterBooks = buildEmbeddedCharacterBookSourceBlocks(characters);
@@ -6655,6 +7034,104 @@ function populatePromptApiModelSelector() {
     select.val(currentModel || '');
 }
 
+function setCardDescriptorCandidateSelection(selectedIds) {
+    const allowedIds = new Set(runtimeState.cardDescriptorCandidates.map(candidate => candidate.id));
+    runtimeState.cardDescriptorSelectedCandidateIds = uniqueStrings(Array.isArray(selectedIds) ? selectedIds : [])
+        .filter(id => allowedIds.has(id));
+    renderCardDescriptorCandidateList();
+}
+
+function renderCardDescriptorCandidateList() {
+    const wrapper = $('#st_chatgpt2api_image_card_candidate_list');
+    const summary = $('#st_chatgpt2api_image_card_candidate_summary');
+    if (!wrapper.length || !summary.length) {
+        return;
+    }
+
+    const cardContext = getCurrentCardContext();
+    const isCurrentCard = cardContext && runtimeState.cardDescriptorCandidateCardKey === cardContext.key;
+    const candidates = isCurrentCard ? runtimeState.cardDescriptorCandidates : [];
+    const selectedIds = new Set(isCurrentCard ? runtimeState.cardDescriptorSelectedCandidateIds : []);
+    const selectedCount = candidates.filter(candidate => selectedIds.has(candidate.id)).length;
+    const activatedCount = candidates.filter(candidate => candidate.activated).length;
+
+    summary.text(
+        candidates.length
+            ? `已选 ${selectedCount} / ${candidates.length} · 绿灯 ${activatedCount} 条`
+            : (cardContext ? '还没有载入候选条目' : '当前没有可用角色卡'),
+    );
+
+    wrapper.empty();
+
+    if (!cardContext) {
+        wrapper.append($('<div></div>')
+            .addClass('st-chatgpt2api-image-candidate-empty')
+            .text('当前聊天没有可用角色卡，暂时无法生成可选条目。'));
+        return;
+    }
+
+    if (runtimeState.cardDescriptorCandidateLoading) {
+        wrapper.append($('<div></div>')
+            .addClass('st-chatgpt2api-image-candidate-empty')
+            .text('正在扫描角色书、绿灯条目和绑定世界书，请稍等...'));
+        return;
+    }
+
+    if (runtimeState.cardDescriptorCandidateError) {
+        wrapper.append($('<div></div>')
+            .addClass('st-chatgpt2api-image-candidate-empty is-error')
+            .text(`候选条目载入失败：${runtimeState.cardDescriptorCandidateError}`));
+        return;
+    }
+
+    if (!candidates.length) {
+        wrapper.append($('<div></div>')
+            .addClass('st-chatgpt2api-image-candidate-empty')
+            .text('当前没有扫描到可选条目。你可以点“刷新候选”，或者直接用角色卡正文提取。'));
+        return;
+    }
+
+    const list = $('<div></div>').addClass('st-chatgpt2api-image-candidate-list');
+
+    for (const candidate of candidates) {
+        const item = $('<label></label>').addClass('st-chatgpt2api-image-candidate-item');
+        const checkbox = $('<input type="checkbox" class="st-chatgpt2api-image-candidate-toggle" />')
+            .attr('data-candidate-id', candidate.id)
+            .prop('checked', selectedIds.has(candidate.id));
+
+        const body = $('<div></div>').addClass('st-chatgpt2api-image-candidate-item-body');
+        const titleRow = $('<div></div>').addClass('st-chatgpt2api-image-candidate-item-title-row');
+        titleRow.append($('<span></span>')
+            .addClass('st-chatgpt2api-image-candidate-item-title')
+            .text(candidate.title || '未命名条目'));
+
+        for (const badge of candidate.badges || []) {
+            titleRow.append($('<span></span>')
+                .addClass(`st-chatgpt2api-image-candidate-badge${badge === '绿灯' ? ' is-active' : ''}`)
+                .text(badge));
+        }
+
+        body.append(titleRow);
+
+        if (candidate.sourceLabel) {
+            body.append($('<div></div>')
+                .addClass('st-chatgpt2api-image-candidate-item-source')
+                .text(candidate.sourceLabel));
+        }
+
+        if (candidate.preview) {
+            body.append($('<div></div>')
+                .addClass('st-chatgpt2api-image-candidate-item-preview')
+                .text(candidate.preview));
+        }
+
+        item.append(checkbox, body);
+        list.append(item);
+    }
+
+    wrapper.append(list);
+}
+
 function refreshDescriptorLibraryUi() {
     if (!$('#st_chatgpt2api_image_settings').length) {
         return;
@@ -6705,6 +7182,7 @@ function refreshDescriptorLibraryUi() {
     );
 
     populatePromptApiModelSelector();
+    ensureCardDescriptorCandidatesFresh(cardContext);
 }
 
 async function fetchPromptApiModels() {
@@ -6824,7 +7302,15 @@ async function extractCurrentCardLibrary() {
         throw new Error('当前角色卡没有可提取的内容。');
     }
 
-    const sourceText = await buildCardDescriptorExtractionSource(cardContext);
+    let selectedCandidates = null;
+    try {
+        const candidates = await refreshCardDescriptorCandidates({ force: false });
+        selectedCandidates = getSelectedCardDescriptorCandidates(cardContext, candidates);
+    } catch (error) {
+        console.warn('Falling back to automatic descriptor extraction source after candidate refresh failure', error);
+    }
+
+    const sourceText = await buildCardDescriptorExtractionSource(cardContext, { selectedCandidates });
     if (!sourceText) {
         throw new Error('当前角色卡与世界书内容为空，无法提取角色词条。');
     }
@@ -6928,8 +7414,59 @@ async function onFetchPromptModelsClick() {
     }
 }
 
+async function onRefreshCardCandidatesClick() {
+    setStatus('正在刷新角色词条候选来源...', 'busy', '刷新候选');
+
+    try {
+        const candidates = await refreshCardDescriptorCandidates({ force: true });
+        const message = candidates.length
+            ? `候选条目已刷新，共 ${candidates.length} 条。`
+            : '候选条目已刷新，但当前没有扫描到可选来源。';
+        setStatus(message, 'success');
+        toastr.success(message, TOAST_TITLE);
+    } catch (error) {
+        console.error('Card descriptor candidate refresh failed', error);
+        setStatus(`候选条目刷新失败：${error.message}`, 'error');
+        toastr.error(error.message || '未知错误', TOAST_TITLE);
+    }
+}
+
+function onSelectRecommendedCardCandidatesClick() {
+    const ids = runtimeState.cardDescriptorCandidates
+        .filter(candidate => candidate.defaultSelected)
+        .map(candidate => candidate.id);
+    setCardDescriptorCandidateSelection(ids);
+    setStatus(`已选推荐条目 ${ids.length} 条。`, 'success');
+}
+
+function onSelectActivatedCardCandidatesClick() {
+    const ids = runtimeState.cardDescriptorCandidates
+        .filter(candidate => candidate.activated)
+        .map(candidate => candidate.id);
+    setCardDescriptorCandidateSelection(ids);
+    setStatus(`已选绿灯条目 ${ids.length} 条。`, 'success');
+}
+
+function onSelectAllCardCandidatesClick() {
+    const ids = runtimeState.cardDescriptorCandidates.map(candidate => candidate.id);
+    setCardDescriptorCandidateSelection(ids);
+    setStatus(`已全选 ${ids.length} 条候选来源。`, 'success');
+}
+
+function onClearCardCandidateSelectionClick() {
+    setCardDescriptorCandidateSelection([]);
+    setStatus('已清空候选条目勾选。', 'success');
+}
+
 async function onExtractCardLibraryClick() {
-    setStatus('正在识别当前角色卡中的角色词条，请稍等...', 'busy', '提取角色词条');
+    const selectedCount = getSelectedCardDescriptorCandidates(getCurrentCardContext()).length;
+    setStatus(
+        selectedCount
+            ? `正在识别当前角色卡中的角色词条，已带入 ${selectedCount} 条勾选来源...`
+            : '正在识别当前角色卡中的角色词条，请稍等...',
+        'busy',
+        '提取角色词条',
+    );
 
     try {
         const entries = await extractCurrentCardLibrary();
@@ -7345,6 +7882,26 @@ async function addSettingsUi() {
         setStatus('人设词条提取设定已恢复默认。', 'success');
     });
     $(document).on('click', '#st_chatgpt2api_image_fetch_prompt_models', onFetchPromptModelsClick);
+    $(document).on('click', '#st_chatgpt2api_image_refresh_card_candidates', onRefreshCardCandidatesClick);
+    $(document).on('click', '#st_chatgpt2api_image_select_recommended_card_candidates', onSelectRecommendedCardCandidatesClick);
+    $(document).on('click', '#st_chatgpt2api_image_select_activated_card_candidates', onSelectActivatedCardCandidatesClick);
+    $(document).on('click', '#st_chatgpt2api_image_select_all_card_candidates', onSelectAllCardCandidatesClick);
+    $(document).on('click', '#st_chatgpt2api_image_clear_card_candidate_selection', onClearCardCandidateSelectionClick);
+    $(document).on('change', '.st-chatgpt2api-image-candidate-toggle', function () {
+        const id = String($(this).attr('data-candidate-id') || '').trim();
+        if (!id) {
+            return;
+        }
+
+        const selectedIds = new Set(runtimeState.cardDescriptorSelectedCandidateIds);
+        if ($(this).prop('checked')) {
+            selectedIds.add(id);
+        } else {
+            selectedIds.delete(id);
+        }
+
+        setCardDescriptorCandidateSelection(Array.from(selectedIds));
+    });
     $(document).on('click', '#st_chatgpt2api_image_extract_card_library', onExtractCardLibraryClick);
     $(document).on('click', '#st_chatgpt2api_image_save_card_library', onSaveCardLibraryClick);
     $(document).on('click', '#st_chatgpt2api_image_clear_card_library', onClearCardLibraryClick);
