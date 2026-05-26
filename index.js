@@ -5055,7 +5055,9 @@ async function attachImageToMessage(messageId, prompt, base64Data, sourceMessage
     // slot/button DOM and make the image rely on later recovery passes to move back
     // into place, which is the main reason some chats only show the image after refresh.
     updateMessageBlock(messageId, message, { rerenderMessage: false });
+    await waitForMountedMessageMedia(messageId);
     syncMessageActionButton(messageId);
+    await refreshMessageMediaPresentation(messageId, { retryBrokenImage: true, useCacheBust: true });
     scheduleMessageMediaRefresh(messageId, { retryBrokenImage: true });
     await eventSource.emit(event_types.CHARACTER_MESSAGE_RENDERED, messageId, 'extension');
     await context.saveChat();
@@ -5977,7 +5979,70 @@ function isBrokenMessageImage(imageElement) {
     return imageElement.hasClass('error') || (domImage.complete && domImage.naturalWidth === 0);
 }
 
-function refreshMessageMediaPresentation(messageId, { retryBrokenImage = false, useCacheBust = false } = {}) {
+function hasMountedMessageMedia(messageElement) {
+    if (!messageElement?.length) {
+        return false;
+    }
+
+    if (messageElement.find('.mes_media_wrapper > *, .mes_img_container, .mes_video_container, .mes_audio_container, .mes_img, .mes_video, .mes_audio').length) {
+        return true;
+    }
+
+    return false;
+}
+
+function waitForMountedMessageMedia(messageId, { timeoutMs = 1400 } = {}) {
+    const normalizedId = normalizeMessageId(messageId);
+    if (normalizedId === null) {
+        return Promise.resolve(false);
+    }
+
+    const messageElement = $(`#chat .mes[mesid="${normalizedId}"]`);
+    if (!messageElement.length) {
+        return Promise.resolve(false);
+    }
+
+    if (hasMountedMessageMedia(messageElement)) {
+        return Promise.resolve(true);
+    }
+
+    return new Promise(resolve => {
+        let settled = false;
+        const targetNode = messageElement.get(0);
+        if (!targetNode) {
+            resolve(false);
+            return;
+        }
+
+        const finish = (value) => {
+            if (settled) {
+                return;
+            }
+
+            settled = true;
+            observer.disconnect();
+            window.clearTimeout(timeoutId);
+            resolve(value);
+        };
+
+        const observer = new MutationObserver(() => {
+            if (hasMountedMessageMedia(messageElement)) {
+                finish(true);
+            }
+        });
+
+        observer.observe(targetNode, {
+            childList: true,
+            subtree: true,
+        });
+
+        const timeoutId = window.setTimeout(() => {
+            finish(hasMountedMessageMedia(messageElement));
+        }, Math.max(0, Number(timeoutMs) || 0));
+    });
+}
+
+async function refreshMessageMediaPresentation(messageId, { retryBrokenImage = false, useCacheBust = false } = {}) {
     const normalizedId = normalizeMessageId(messageId);
     if (normalizedId === null) {
         return false;
@@ -5995,6 +6060,7 @@ function refreshMessageMediaPresentation(messageId, { retryBrokenImage = false, 
     }
 
     appendMediaToMessage(message, messageElement, false);
+    await waitForMountedMessageMedia(normalizedId);
 
     const textContainer = messageElement.find('.mes_text').first();
     const hasInlineSlot = textContainer.find(`> ${MESSAGE_INLINE_SLOT_SELECTOR}[data-st-message-id="${normalizedId}"]`).length > 0;
@@ -6031,12 +6097,12 @@ function scheduleMessageMediaRefresh(messageId, { retryBrokenImage = false } = {
     clearMessageMediaRefreshTimers(normalizedId);
 
     const message = getMessageById(normalizedId);
-    if (!message?.extra?.image) {
+    if (!getCurrentMessageImagePath(message)) {
         return;
     }
 
-    const timers = MEDIA_REFRESH_RETRY_DELAYS.map((delay, index) => window.setTimeout(() => {
-        refreshMessageMediaPresentation(normalizedId, {
+    const timers = MEDIA_REFRESH_RETRY_DELAYS.map((delay, index) => window.setTimeout(async () => {
+        await refreshMessageMediaPresentation(normalizedId, {
             retryBrokenImage,
             useCacheBust: retryBrokenImage && index > 0,
         });
