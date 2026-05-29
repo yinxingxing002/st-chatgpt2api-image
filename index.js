@@ -48,6 +48,18 @@ const PROTOCOL_PRESET_SELECTION_CUSTOM = '__working_copy__';
 const PROTOCOL_PRESET_SELECTION_DEFAULT = '__builtin_default__';
 const PROTOCOL_PRESET_FILE_KIND = 'st-chatgpt2api-image.prompt-preset';
 const PROTOCOL_PRESET_FILE_VERSION = 1;
+const IMAGE_PROVIDER_CHATGPT2API = 'chatgpt2api';
+const IMAGE_PROVIDER_GROK = 'grok';
+const IMAGE_PROMPT_PROGRAM_CHATGPT2API = 'chatgpt2api_images';
+const IMAGE_PROMPT_PROGRAM_GROK = 'grok_chat_image';
+const IMAGE_API_MODE_IMAGES = 'images';
+const IMAGE_API_MODE_CHAT_COMPLETIONS = 'chat_completions';
+const DEFAULT_GROK_CHAT_IMAGE_MODEL = 'grok-4.1-fast-image';
+const GROK_PROTOCOL_PRESET_NAME = 'Grok 简洁双画风提示词';
+const GROK_STYLE_PROMPT_IDENTIFIERS = new Set(['grokStyleAnime', 'grokStylePhotorealistic']);
+const MAX_PROMPT_API_SOURCE_CHARS = 8000;
+const MAX_IMAGE_CHAT_PROMPT_CHARS = 6000;
+const MAX_REFERENCE_IMAGE_DATA_URL_CHARS = 500000;
 const BUNDLED_PROTOCOL_PRESETS = [
     {
         path: `scripts/extensions/${EXTENSION_NAME}/presets/Gemini_MyGO_ImagePromptExtract.json`,
@@ -60,6 +72,12 @@ const BUNDLED_PROTOCOL_PRESETS = [
     {
         path: `scripts/extensions/${EXTENSION_NAME}/presets/Ny-Gemini-1.4.0_SogonSigon_ImagePromptExtract.json`,
         fallbackName: 'n测试预设',
+    },
+    {
+        path: `scripts/extensions/${EXTENSION_NAME}/presets/Grok_Lite_DualStyle_ImagePromptExtract.json`,
+        fallbackName: GROK_PROTOCOL_PRESET_NAME,
+        forceRefresh: true,
+        legacyNames: ['Grok Lite Dual Style Image Prompt Extract'],
     },
 ];
 const STATUS_TITLES = {
@@ -91,6 +109,17 @@ const BUSY_PHASE_META = {
     },
 };
 const MAX_PROMPT_CHARACTER_ANCHORS = 2;
+
+function limitTextForApi(value, maxChars, label = 'text') {
+    const text = String(value || '');
+    const limit = Number(maxChars) || 0;
+
+    if (!limit || text.length <= limit) {
+        return text;
+    }
+
+    return `${text.slice(0, limit).trimEnd()}\n\n[${label} truncated locally to keep the request body under the upstream limit]`;
+}
 
 const DEFAULT_NSFW_TERMS = [
     'nsfw',
@@ -598,9 +627,19 @@ const defaultSettings = {
     descriptor_persona_system_prompt: DEFAULT_PERSONA_DESCRIPTOR_SYSTEM_PROMPT,
     protocol_presets: [],
     protocol_preset_selection: PROTOCOL_PRESET_SELECTION_CUSTOM,
+    image_provider: IMAGE_PROVIDER_CHATGPT2API,
+    image_prompt_program: IMAGE_PROMPT_PROGRAM_CHATGPT2API,
     image_api_url: '',
     image_api_key: '',
+    image_api_mode: IMAGE_API_MODE_IMAGES,
     image_model: 'gpt-image-2',
+    image_chat_include_reference: true,
+    image_chat_stream: true,
+    grok_api_url: '',
+    grok_api_key: '',
+    grok_model: DEFAULT_GROK_CHAT_IMAGE_MODEL,
+    grok_chat_include_reference: true,
+    grok_chat_stream: false,
     nsfw_guard_enabled: true,
     nsfw_terms: DEFAULT_NSFW_TERMS,
     nsfw_rewrite_hint: DEFAULT_NSFW_REWRITE_HINT,
@@ -637,16 +676,117 @@ const runtimeState = {
 
 let isGenerating = false;
 
+function normalizeImageProvider(value) {
+    const provider = String(value || '').trim().toLowerCase();
+
+    if (['chat', 'grok_chat', IMAGE_PROVIDER_GROK, IMAGE_API_MODE_CHAT_COMPLETIONS].includes(provider)) {
+        return IMAGE_PROVIDER_GROK;
+    }
+
+    return IMAGE_PROVIDER_CHATGPT2API;
+}
+
+function getLegacyImageApiMode(settings) {
+    const mode = String(settings?.image_api_mode || IMAGE_API_MODE_IMAGES).trim().toLowerCase();
+
+    if (['chat', 'grok_chat', IMAGE_API_MODE_CHAT_COMPLETIONS].includes(mode)) {
+        return IMAGE_API_MODE_CHAT_COMPLETIONS;
+    }
+
+    return IMAGE_API_MODE_IMAGES;
+}
+
+function migrateImageProviderSettings(settings) {
+    if (!settings || typeof settings !== 'object') {
+        return settings;
+    }
+
+    const legacyWasGrok = !settings.image_provider && getLegacyImageApiMode(settings) === IMAGE_API_MODE_CHAT_COMPLETIONS;
+    settings.image_provider = normalizeImageProvider(settings.image_provider || (legacyWasGrok ? IMAGE_PROVIDER_GROK : IMAGE_PROVIDER_CHATGPT2API));
+
+    if (legacyWasGrok) {
+        if (!String(settings.grok_api_url || '').trim() && String(settings.image_api_url || '').trim()) {
+            settings.grok_api_url = settings.image_api_url;
+        }
+
+        if (!String(settings.grok_api_key || '').trim() && String(settings.image_api_key || '').trim()) {
+            settings.grok_api_key = settings.image_api_key;
+        }
+
+        if (!String(settings.grok_model || '').trim()) {
+            const legacyModel = String(settings.image_model || '').trim();
+            settings.grok_model = legacyModel && legacyModel !== defaultSettings.image_model
+                ? legacyModel
+                : DEFAULT_GROK_CHAT_IMAGE_MODEL;
+        }
+
+        settings.grok_chat_include_reference = settings.image_chat_include_reference !== false;
+        settings.grok_chat_stream = settings.image_chat_stream !== false;
+    }
+
+    if (!String(settings.grok_model || '').trim()) {
+        settings.grok_model = DEFAULT_GROK_CHAT_IMAGE_MODEL;
+    }
+
+    syncImagePromptProgram(settings);
+
+    return settings;
+}
+
 function ensureSettings() {
     extension_settings[MODULE_NAME] = extension_settings[MODULE_NAME] || {};
     extension_settings[MODULE_NAME] = Object.assign({}, defaultSettings, extension_settings[MODULE_NAME]);
     const settings = extension_settings[MODULE_NAME];
+    migrateImageProviderSettings(settings);
     settings.control_fab_positions = normalizeControlFabPositions(settings.control_fab_positions);
     settings.prompt_api_prompt_manager = normalizePromptManagerState(
         settings.prompt_api_prompt_manager,
         settings.prompt_api_system_prompt || DEFAULT_PROMPT_API_SYSTEM_PROMPT,
     );
     return settings;
+}
+
+function getImageProvider(settings = ensureSettings()) {
+    return normalizeImageProvider(settings.image_provider);
+}
+
+function isGrokImageProvider(settings = ensureSettings()) {
+    return getImageProvider(settings) === IMAGE_PROVIDER_GROK;
+}
+
+function getImagePromptProgram(settings = ensureSettings()) {
+    return isGrokImageProvider(settings)
+        ? IMAGE_PROMPT_PROGRAM_GROK
+        : IMAGE_PROMPT_PROGRAM_CHATGPT2API;
+}
+
+function syncImagePromptProgram(settings = ensureSettings()) {
+    settings.image_prompt_program = getImagePromptProgram(settings);
+    return settings.image_prompt_program;
+}
+
+function getImageProviderLabel(settings = ensureSettings()) {
+    return isGrokImageProvider(settings) ? 'Grok 聊天生图' : 'ChatGPT2API 生图';
+}
+
+function getChatGpt2ApiImageModel(settings = ensureSettings()) {
+    return String(settings.image_model || '').trim() || defaultSettings.image_model;
+}
+
+function getGrokImageModel(settings = ensureSettings()) {
+    return String(settings.grok_model || '').trim() || DEFAULT_GROK_CHAT_IMAGE_MODEL;
+}
+
+function getActiveImageApiUrl(settings = ensureSettings()) {
+    return isGrokImageProvider(settings) ? settings.grok_api_url : settings.image_api_url;
+}
+
+function getActiveImageApiKey(settings = ensureSettings()) {
+    return isGrokImageProvider(settings) ? settings.grok_api_key : settings.image_api_key;
+}
+
+function shouldUseGrokChatStream(settings = ensureSettings()) {
+    return settings.grok_chat_stream !== false && !isTavernConnectionMode(settings);
 }
 
 function clampNumber(value, min, max) {
@@ -967,6 +1107,84 @@ function getConnectionModeHint(settings = ensureSettings()) {
 
 function updateConnectionModeUi(settings = ensureSettings()) {
     $('#st_chatgpt2api_image_connection_mode_hint').text(getConnectionModeHint(settings));
+}
+
+function getImageProviderModeHint(settings = ensureSettings()) {
+    if (isGrokImageProvider(settings)) {
+        return '当前使用 Grok 聊天生图分支，图片请求走 /v1/chat/completions；提词预测程序已同步到 Grok 分支，后续可在这里接入专用内容。';
+    }
+
+    return '当前使用普通生图分支，图片请求走 ChatGPT2API / OpenAI Images；原有 chat2api 主功能保持独立。';
+}
+
+function updateImageProviderUi(settings = ensureSettings()) {
+    const grokMode = isGrokImageProvider(settings);
+    const provider = getImageProvider(settings);
+    syncImagePromptProgram(settings);
+
+    $('#st_chatgpt2api_image_provider').val(provider);
+    $('.st-chatgpt2api-image-mode-option').each(function () {
+        const button = $(this);
+        const active = normalizeImageProvider(button.attr('data-image-provider')) === provider;
+        button
+            .toggleClass('is-active', active)
+            .attr('aria-checked', active ? 'true' : 'false');
+    });
+    $('.st-chatgpt2api-image-mode-badge').text(grokMode ? 'Grok' : '普通');
+    $('.st-chatgpt2api-image-mode-hint').text(getImageProviderModeHint(settings));
+    $('#st_chatgpt2api_image_chatgpt2api_options').toggleClass('displayNone', grokMode);
+    $('#st_chatgpt2api_image_grok_options').toggleClass('displayNone', !grokMode);
+    $('#st_chatgpt2api_image_test_api span').text(grokMode ? '测试 Grok 生图接口' : '测试 ChatGPT2API 生图接口');
+    $('#st_chatgpt2api_image_grok_stream')
+        .prop('disabled', isTavernConnectionMode(settings))
+        .closest('label')
+        .toggleClass('disabled', isTavernConnectionMode(settings));
+    $('#st_chatgpt2api_image_grok_stream_hint').text(
+        isTavernConnectionMode(settings)
+            ? '酒馆代理模式会自动改用非流式请求，避免通用代理对长连接流式响应 60 秒超时。'
+            : '浏览器直连模式可以启用流式解析；如果遇到超时或卡住，可以关闭它。',
+    );
+}
+
+function applyGrokProtocolPresetToSettings(settings = ensureSettings()) {
+    const preset = findStoredProtocolPreset(settings, GROK_PROTOCOL_PRESET_NAME);
+    if (!preset) {
+        console.warn('Grok protocol preset is not available yet.');
+        return false;
+    }
+
+    applyProtocolPresetToSettings(preset, GROK_PROTOCOL_PRESET_NAME);
+    runtimeState.promptManagerEditingIdentifier = 'main';
+    return true;
+}
+
+function applyImageProviderSelection(value, { persist = true } = {}) {
+    const settings = ensureSettings();
+    const provider = normalizeImageProvider(value);
+    settings.image_provider = provider;
+    syncImagePromptProgram(settings);
+
+    if (isGrokImageProvider(settings) && !String(settings.grok_model || '').trim()) {
+        settings.grok_model = DEFAULT_GROK_CHAT_IMAGE_MODEL;
+        $('#st_chatgpt2api_image_grok_model').val(settings.grok_model);
+    }
+
+    const appliedGrokPreset = provider === IMAGE_PROVIDER_GROK
+        && settings.protocol_preset_selection !== GROK_PROTOCOL_PRESET_NAME
+        && applyGrokProtocolPresetToSettings(settings);
+
+    updateImageProviderUi(settings);
+    if (appliedGrokPreset) {
+        refreshProtocolPresetUi();
+        setStatus(`已自动套用 Grok 提示词预设：${GROK_PROTOCOL_PRESET_NAME}`, 'success');
+        toastr.success(`已自动套用 Grok 提示词预设：${GROK_PROTOCOL_PRESET_NAME}`, TOAST_TITLE);
+    }
+
+    if (persist) {
+        saveSettingsDebounced();
+    }
+
+    return settings;
 }
 
 function normalizeMessageId(messageId) {
@@ -1761,7 +1979,31 @@ async function ensureBundledProtocolPresets() {
         try {
             const source = await fetchJsonOrText(bundledPreset.path, { method: 'GET' });
             const normalized = normalizeProtocolPresetRecord(source, bundledPreset.fallbackName);
-            if (!normalized || findStoredProtocolPreset(settings, normalized.name)) {
+            if (!normalized) {
+                continue;
+            }
+
+            if (Array.isArray(bundledPreset.legacyNames)) {
+                for (const legacyName of bundledPreset.legacyNames) {
+                    if (legacyName === normalized.name) {
+                        continue;
+                    }
+
+                    if (removeStoredProtocolPreset(settings, legacyName)) {
+                        changed = true;
+                        if (settings.protocol_preset_selection === legacyName) {
+                            settings.protocol_preset_selection = normalized.name;
+                        }
+                    }
+                }
+            }
+
+            const existingPreset = findStoredProtocolPreset(settings, normalized.name);
+            if (existingPreset && !bundledPreset.forceRefresh) {
+                continue;
+            }
+
+            if (existingPreset && JSON.stringify(existingPreset) === JSON.stringify(normalized)) {
                 continue;
             }
 
@@ -1894,7 +2136,16 @@ function togglePromptManagerPromptEnabled(identifier) {
         return;
     }
 
-    entry.enabled = entry.enabled === false;
+    const nextEnabled = entry.enabled === false;
+    if (nextEnabled && GROK_STYLE_PROMPT_IDENTIFIERS.has(String(identifier || '').trim())) {
+        for (const orderEntry of promptManager.prompt_order) {
+            if (orderEntry.identifier !== identifier && GROK_STYLE_PROMPT_IDENTIFIERS.has(orderEntry.identifier)) {
+                orderEntry.enabled = false;
+            }
+        }
+    }
+
+    entry.enabled = nextEnabled;
     setPromptManagerState(promptManager, settings);
     markProtocolPresetAsWorkingCopy();
     saveSettingsDebounced();
@@ -2659,11 +2910,11 @@ function buildFriendlyFetchFailureMessage(url, error) {
 
 function shouldPreferTavernImageProxy(settings = ensureSettings()) {
     return isTavernConnectionMode(settings)
-        && isAbsoluteHttpUrl(settings.image_api_url);
+        && isAbsoluteHttpUrl(getActiveImageApiUrl(settings));
 }
 
-function getImageApiBaseCandidates(settings = ensureSettings()) {
-    const normalizedBaseUrl = normalizeUrl(settings.image_api_url);
+function getImageApiBaseCandidates(settings = ensureSettings(), baseUrl = getActiveImageApiUrl(settings)) {
+    const normalizedBaseUrl = normalizeUrl(baseUrl);
     if (!normalizedBaseUrl) {
         return [];
     }
@@ -2671,9 +2922,9 @@ function getImageApiBaseCandidates(settings = ensureSettings()) {
     return [normalizedBaseUrl];
 }
 
-function getImageApiEndpointCandidates(settings = ensureSettings(), endpointPath = '/images/generations') {
+function getImageApiEndpointCandidates(settings = ensureSettings(), endpointPath = '/images/generations', baseUrl = getActiveImageApiUrl(settings)) {
     const directEndpoints = uniqueStrings(
-        getImageApiBaseCandidates(settings)
+        getImageApiBaseCandidates(settings, baseUrl)
             .map(baseUrl => buildOpenAiCompatibleEndpointUrl(baseUrl, endpointPath))
             .filter(Boolean),
     );
@@ -4287,6 +4538,25 @@ function getImageExtensionFromMimeType(mimeType) {
     }
 }
 
+function getImageMimeTypeFromExtension(extension) {
+    const normalized = String(extension || '').trim().replace(/^\./, '').toLowerCase();
+
+    switch (normalized) {
+        case 'jpg':
+        case 'jpeg':
+            return 'image/jpeg';
+        case 'webp':
+            return 'image/webp';
+        case 'gif':
+            return 'image/gif';
+        case 'bmp':
+            return 'image/bmp';
+        case 'png':
+        default:
+            return 'image/png';
+    }
+}
+
 function getImageExtensionFromUrl(url) {
     try {
         const pathname = new URL(String(url || ''), window.location.href).pathname;
@@ -4342,15 +4612,36 @@ function extractImageDataUrlPayload(value) {
     };
 }
 
-function extractImageUrlFromText(value) {
+function resolveImageUrlCandidate(value, baseUrl = '') {
+    const rawUrl = String(value || '').trim().replace(/^['"]|['"]$/g, '');
+
+    if (!rawUrl) {
+        return '';
+    }
+
+    if (/^https?:\/\//i.test(rawUrl)) {
+        return rawUrl;
+    }
+
+    try {
+        return new URL(rawUrl, baseUrl || window.location.href).href;
+    } catch {
+        return '';
+    }
+}
+
+function extractImageUrlFromText(value, baseUrl = '') {
     const text = String(value || '').trim();
     if (!text) {
         return '';
     }
 
-    const markdownMatch = text.match(/!\[[^\]]*]\((https?:\/\/[^)\s]+)\)/i);
+    const markdownMatch = text.match(/!\[[^\]]*]\(([^)\s]+)\)/i);
     if (markdownMatch?.[1]) {
-        return markdownMatch[1];
+        const markdownUrl = resolveImageUrlCandidate(markdownMatch[1], baseUrl);
+        if (markdownUrl) {
+            return markdownUrl;
+        }
     }
 
     const urlMatch = text.match(/https?:\/\/[^\s"'<>]+/i);
@@ -4359,17 +4650,13 @@ function extractImageUrlFromText(value) {
     }
 
     if (text.startsWith('/')) {
-        try {
-            return new URL(text, window.location.href).href;
-        } catch {
-            return '';
-        }
+        return resolveImageUrlCandidate(text, baseUrl);
     }
 
     return '';
 }
 
-function normalizeImagePayloadFromText(value) {
+function normalizeImagePayloadFromText(value, baseUrl = '') {
     const text = String(value || '').trim();
     if (!text) {
         return null;
@@ -4380,7 +4667,7 @@ function normalizeImagePayloadFromText(value) {
         return dataUrlPayload;
     }
 
-    const imageUrl = extractImageUrlFromText(text);
+    const imageUrl = extractImageUrlFromText(text, baseUrl);
     if (imageUrl) {
         return { imageUrl };
     }
@@ -4395,20 +4682,20 @@ function normalizeImagePayloadFromText(value) {
     return null;
 }
 
-function extractImagePayloadCandidate(value, seen = new WeakSet(), depth = 0) {
+function extractImagePayloadCandidate(value, seen = new WeakSet(), depth = 0, baseUrl = '') {
     if (value == null || depth > 5) {
         return null;
     }
 
     if (typeof value === 'string') {
-        const normalized = normalizeImagePayloadFromText(value);
+        const normalized = normalizeImagePayloadFromText(value, baseUrl);
         if (normalized) {
             return normalized;
         }
 
         const reparsed = tryParseJson(value);
         if (reparsed && reparsed !== value) {
-            return extractImagePayloadCandidate(reparsed, seen, depth + 1);
+            return extractImagePayloadCandidate(reparsed, seen, depth + 1, baseUrl);
         }
 
         return null;
@@ -4456,7 +4743,7 @@ function extractImagePayloadCandidate(value, seen = new WeakSet(), depth = 0) {
     ];
 
     for (const candidate of priorityCandidates) {
-        const normalized = extractImagePayloadCandidate(candidate, seen, depth + 1);
+        const normalized = extractImagePayloadCandidate(candidate, seen, depth + 1, baseUrl);
         if (normalized) {
             return normalized;
         }
@@ -4464,7 +4751,7 @@ function extractImagePayloadCandidate(value, seen = new WeakSet(), depth = 0) {
 
     if (Array.isArray(value)) {
         for (const item of value) {
-            const normalized = extractImagePayloadCandidate(item, seen, depth + 1);
+            const normalized = extractImagePayloadCandidate(item, seen, depth + 1, baseUrl);
             if (normalized) {
                 return normalized;
             }
@@ -4474,7 +4761,7 @@ function extractImagePayloadCandidate(value, seen = new WeakSet(), depth = 0) {
     }
 
     for (const nestedValue of Object.values(value)) {
-        const normalized = extractImagePayloadCandidate(nestedValue, seen, depth + 1);
+        const normalized = extractImagePayloadCandidate(nestedValue, seen, depth + 1, baseUrl);
         if (normalized) {
             return normalized;
         }
@@ -4498,6 +4785,11 @@ async function fetchImageUrlAsBase64Payload(imageUrl, settings = ensureSettings(
                 throw new Error(`图片地址返回异常（HTTP ${response.status}）。`);
             }
 
+            const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+            if (contentType && !contentType.startsWith('image/') && !contentType.includes('application/octet-stream')) {
+                throw new Error(`图片地址返回的不是图片数据（${contentType}）。`);
+            }
+
             const blob = await response.blob();
             const base64Data = await blobToBase64(blob);
 
@@ -4516,6 +4808,152 @@ async function fetchImageUrlAsBase64Payload(imageUrl, settings = ensureSettings(
     }
 
     throw lastError || new Error('图片地址没有返回可用的图片数据。');
+}
+
+async function getMessageReferenceImageDataUrl(message, settings = ensureSettings()) {
+    const imageUrl = getCurrentMessageImagePath(message);
+
+    if (!imageUrl) {
+        return null;
+    }
+
+    const payload = await fetchImageUrlAsBase64Payload(imageUrl, settings);
+
+    if (!payload?.base64Data) {
+        return null;
+    }
+
+    const dataUrl = `data:${getImageMimeTypeFromExtension(payload.extension)};base64,${payload.base64Data}`;
+
+    if (dataUrl.length > MAX_REFERENCE_IMAGE_DATA_URL_CHARS) {
+        console.warn(`Skipping reference image because it is too large for chat image generation (${dataUrl.length} chars).`);
+        return null;
+    }
+
+    return {
+        dataUrl,
+        sourceUrl: imageUrl,
+    };
+}
+
+function buildChatImagePromptText(prompt, hasReferenceImage = false) {
+    const instructions = [
+        'Generate one image from the visual prompt below.',
+        hasReferenceImage
+            ? 'Use the attached reference image for composition, character continuity, style cues, or image-to-image editing when it helps.'
+            : '',
+        'Return only the generated image result. If your API surface needs text, return a markdown image URL and no extra explanation.',
+        '',
+        'Visual prompt:',
+        limitTextForApi(prompt, MAX_IMAGE_CHAT_PROMPT_CHARS, 'image prompt').trim(),
+    ];
+
+    return instructions.filter(part => part !== '').join('\n');
+}
+
+async function buildChatImageUserContent(prompt, sourceMessage, settings = ensureSettings()) {
+    let reference = null;
+
+    if (settings.grok_chat_include_reference !== false && sourceMessage) {
+        try {
+            reference = await getMessageReferenceImageDataUrl(sourceMessage, settings);
+        } catch (error) {
+            console.warn('Failed to attach reference image for chat image generation', error);
+        }
+    }
+
+    const text = buildChatImagePromptText(prompt, !!reference);
+
+    if (!reference) {
+        return {
+            content: text,
+            referenceImageUrl: '',
+        };
+    }
+
+    return {
+        content: [
+            {
+                type: 'text',
+                text,
+            },
+            {
+                type: 'image_url',
+                image_url: {
+                    url: reference.dataUrl,
+                },
+            },
+        ],
+        referenceImageUrl: reference.sourceUrl,
+    };
+}
+
+function getChatPayloadContent(payload) {
+    const choice = payload?.choices?.[0] || {};
+    const message = choice.message || {};
+    const delta = choice.delta || {};
+    const content = delta.content ?? message.content ?? choice.text ?? '';
+
+    if (Array.isArray(content)) {
+        return content
+            .map(part => {
+                if (typeof part === 'string') {
+                    return part;
+                }
+
+                if (typeof part?.text === 'string') {
+                    return part.text;
+                }
+
+                if (typeof part?.content === 'string') {
+                    return part.content;
+                }
+
+                if (typeof part?.image_url?.url === 'string') {
+                    return part.image_url.url;
+                }
+
+                return '';
+            })
+            .join('');
+    }
+
+    return typeof content === 'string' ? content : '';
+}
+
+function extractImagePayloadFromEventStreamText(text, baseUrl = '') {
+    const mergedContent = [];
+    const lines = String(text || '').split(/\r?\n/);
+
+    for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) {
+            continue;
+        }
+
+        const data = trimmed.slice(5).trim();
+        if (!data || data === '[DONE]') {
+            continue;
+        }
+
+        const parsed = tryParseJson(data);
+        if (!parsed || parsed === data) {
+            mergedContent.push(data);
+            continue;
+        }
+
+        const immediatePayload = extractImagePayloadCandidate(parsed, new WeakSet(), 0, baseUrl);
+        if (immediatePayload?.base64Data || immediatePayload?.imageUrl) {
+            return immediatePayload;
+        }
+
+        const content = getChatPayloadContent(parsed);
+        if (content) {
+            mergedContent.push(content);
+        }
+    }
+
+    return extractImagePayloadCandidate(mergedContent.join(''), new WeakSet(), 0, baseUrl);
 }
 
 async function fetchImageGenerationPayload(url, options, settings = ensureSettings()) {
@@ -4561,7 +4999,9 @@ async function fetchImageGenerationPayload(url, options, settings = ensureSettin
 
     const text = await response.text();
     const parsedPayload = tryParseJson(text);
-    const normalized = extractImagePayloadCandidate(parsedPayload ?? text);
+    const normalized = contentType.includes('text/event-stream') || /^\s*data:/i.test(text)
+        ? extractImagePayloadFromEventStreamText(text, url)
+        : extractImagePayloadCandidate(parsedPayload ?? text, new WeakSet(), 0, url);
 
     if (!normalized) {
         throw new Error('生图接口没有返回可用的图片数据。');
@@ -4583,7 +5023,7 @@ async function fetchImageGenerationPayload(url, options, settings = ensureSettin
 
 async function buildPromptLegacy(sourceMessage) {
     const settings = ensureSettings();
-    const latestMessageText = getPlainMessageText(sourceMessage);
+    const latestMessageText = limitTextForApi(getPlainMessageText(sourceMessage), MAX_PROMPT_API_SOURCE_CHARS, 'message');
 
     if (!latestMessageText) {
         throw new Error('清理后的 AI 消息正文为空。');
@@ -4664,8 +5104,8 @@ async function buildPromptWithCustomApi(settings, latestMessageText, sourceMessa
     }
 
     const payload = {
-        message: latestMessageText,
-        raw_message: String(sourceMessage.mes || ''),
+        message: limitTextForApi(latestMessageText, MAX_PROMPT_API_SOURCE_CHARS, 'message'),
+        raw_message: limitTextForApi(sourceMessage.mes || '', MAX_PROMPT_API_SOURCE_CHARS, 'raw message'),
         character_name: sourceMessage.name || '',
         message_id: Array.isArray(getContext().chat) ? getContext().chat.indexOf(sourceMessage) : -1,
     };
@@ -4992,7 +5432,7 @@ async function requestPromptApiChatCompletion(settings, messages, { temperature 
 
 async function buildPrompt(sourceMessage) {
     const settings = ensureSettings();
-    const latestMessageText = getPlainMessageText(sourceMessage);
+    const latestMessageText = limitTextForApi(getPlainMessageText(sourceMessage), MAX_PROMPT_API_SOURCE_CHARS, 'message');
 
     if (!latestMessageText) {
         throw new Error('清理后的 AI 消息正文为空。');
@@ -5043,9 +5483,9 @@ async function buildPromptWithCustomApiEnhanced(settings, promptContext) {
         method: 'POST',
         headers: getPromptApiHeaders(settings),
         body: JSON.stringify({
-            message: latestMessageText,
-            raw_message: String(sourceMessage.mes || latestMessageText || ''),
-            safe_message: sanitizedSourceText,
+            message: limitTextForApi(latestMessageText, MAX_PROMPT_API_SOURCE_CHARS, 'message'),
+            raw_message: limitTextForApi(sourceMessage.mes || latestMessageText || '', MAX_PROMPT_API_SOURCE_CHARS, 'raw message'),
+            safe_message: limitTextForApi(sanitizedSourceText, MAX_PROMPT_API_SOURCE_CHARS, 'safe message'),
             prompt_system_instruction: await getEffectivePromptAssistantSystemPrompt(settings, promptContext),
             character_name: sourceMessage.name || '',
             message_id: Array.isArray(getContext().chat) ? getContext().chat.indexOf(sourceMessage) : -1,
@@ -5101,24 +5541,27 @@ async function buildPromptWithCustomApiEnhanced(settings, promptContext) {
     return prompt;
 }
 
-async function requestImage(prompt) {
-    const settings = ensureSettings();
-    const generationUrls = getImageApiEndpointCandidates(settings, '/images/generations');
+function buildImageApiHeaders(settings = ensureSettings(), apiKey = getActiveImageApiKey(settings)) {
+    const headers = {
+        'Content-Type': 'application/json',
+    };
+
+    if (String(apiKey || '').trim()) {
+        headers.Authorization = `Bearer ${String(apiKey).trim()}`;
+    }
+
+    return headers;
+}
+
+async function requestImageViaImagesApi(prompt, settings = ensureSettings()) {
+    const generationUrls = getImageApiEndpointCandidates(settings, '/images/generations', settings.image_api_url);
 
     if (!generationUrls.length) {
         throw new Error('生图接口地址不能为空。');
     }
 
-    const headers = {
-        'Content-Type': 'application/json',
-    };
-
-    if (settings.image_api_key.trim()) {
-        headers.Authorization = `Bearer ${settings.image_api_key.trim()}`;
-    }
-
     const payload = {
-        model: settings.image_model.trim() || defaultSettings.image_model,
+        model: getChatGpt2ApiImageModel(settings),
         prompt,
         n: 1,
         response_format: 'b64_json',
@@ -5130,7 +5573,7 @@ async function requestImage(prompt) {
         try {
             return await fetchImageGenerationPayload(generationsUrl, {
                 method: 'POST',
-                headers,
+                headers: buildImageApiHeaders(settings, settings.image_api_key),
                 body: JSON.stringify(payload),
             }, settings);
         } catch (error) {
@@ -5139,6 +5582,60 @@ async function requestImage(prompt) {
     }
 
     throw lastError || new Error('生图接口没有返回可用的图片数据。');
+}
+
+async function requestImageViaGrokChatCompletions(prompt, sourceMessage, settings = ensureSettings()) {
+    const chatUrls = getImageApiEndpointCandidates(settings, '/chat/completions', settings.grok_api_url);
+
+    if (!chatUrls.length) {
+        throw new Error('Grok 生图接口地址不能为空。');
+    }
+
+    const userContent = await buildChatImageUserContent(prompt, sourceMessage, settings);
+    const payload = {
+        model: getGrokImageModel(settings),
+        messages: [
+            {
+                role: 'system',
+                content: 'You are an image generation endpoint. Generate the requested image and return only the image result.',
+            },
+            {
+                role: 'user',
+                content: userContent.content,
+            },
+        ],
+        temperature: 0.2,
+        stream: shouldUseGrokChatStream(settings),
+    };
+
+    let lastError = null;
+
+    for (const chatUrl of chatUrls) {
+        try {
+            return {
+                ...(await fetchImageGenerationPayload(chatUrl, {
+                    method: 'POST',
+                    headers: buildImageApiHeaders(settings, settings.grok_api_key),
+                    body: JSON.stringify(payload),
+                }, settings)),
+                referenceImageUrl: userContent.referenceImageUrl,
+            };
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    throw lastError || new Error('聊天生图接口没有返回可用的图片数据。');
+}
+
+async function requestImage(prompt, sourceMessage = null) {
+    const settings = ensureSettings();
+
+    if (isGrokImageProvider(settings)) {
+        return await requestImageViaGrokChatCompletions(prompt, sourceMessage, settings);
+    }
+
+    return await requestImageViaImagesApi(prompt, settings);
 }
 
 function buildImageRetryPrompt(prompt, settings = ensureSettings()) {
@@ -5156,12 +5653,12 @@ function buildImageRetryPrompt(prompt, settings = ensureSettings()) {
     return safePrompt;
 }
 
-async function requestImageWithSafetyRetry(prompt) {
+async function requestImageWithSafetyRetry(prompt, sourceMessage = null) {
     const settings = ensureSettings();
 
     try {
         return {
-            ...(await requestImage(prompt)),
+            ...(await requestImage(prompt, sourceMessage)),
             promptUsed: prompt,
             safetyRetried: false,
         };
@@ -5179,7 +5676,7 @@ async function requestImageWithSafetyRetry(prompt) {
 
         try {
             return {
-                ...(await requestImage(safePrompt)),
+                ...(await requestImage(safePrompt, sourceMessage)),
                 promptUsed: safePrompt,
                 safetyRetried: true,
             };
@@ -6123,6 +6620,7 @@ async function addFloatingPanel() {
         ensurePanelReloadAction();
         $('#st_chatgpt2api_image_panel_reload_chat').off('click').on('click', onReloadChatClick);
         updateSoftReloadButtonState();
+        updateImageProviderUi();
         return;
     }
 
@@ -6144,6 +6642,7 @@ async function addFloatingPanel() {
     $('#st_chatgpt2api_image_panel_reload_chat').on('click', onReloadChatClick);
 
     updatePanelSelection(true);
+    updateImageProviderUi();
     setStatus('选中一条消息后即可开始。');
 }
 
@@ -6345,8 +6844,15 @@ async function generateImageForSelection(prompt) {
         throw new Error('提示词为空。');
     }
 
-    setBusyPhase('image', '已向 ChatGPT2API 发出生图请求，正在等待图片返回。', '生成图片');
-    const imageResult = await requestImageWithSafetyRetry(trimmedPrompt);
+    const settings = ensureSettings();
+    setBusyPhase(
+        'image',
+        isGrokImageProvider(settings)
+            ? '已向 Grok 聊天生图接口发出请求，正在等待图片返回。'
+            : '已向 ChatGPT2API 发出生图请求，正在等待图片返回。',
+        '生成图片',
+    );
+    const imageResult = await requestImageWithSafetyRetry(trimmedPrompt, selected.message);
     setBusyPhase('attach', '图片已经返回，正在挂回当前这条消息。', '挂回楼层');
     const result = await attachImageToMessage(
         selected.messageId,
@@ -6357,10 +6863,14 @@ async function generateImageForSelection(prompt) {
     );
 
     setPanelPreview(result.imagePath, imageResult.promptUsed);
+    const usedReferenceImage = !!imageResult.referenceImageUrl;
     if (imageResult.safetyRetried) {
         setPanelPromptValue(imageResult.promptUsed);
         setStatus('检测到生图接口疑似拦截了敏感词，已自动改写提示词并成功返回图片。', 'success', '安全重试成功');
         toastr.success('图片已通过安全改写后的提示词成功返回。', TOAST_TITLE);
+    } else if (usedReferenceImage) {
+        setStatus('图片已经基于当前消息参考图生成，并挂到这条 AI 消息里。', 'success', '生成完成');
+        toastr.success('图片已经基于参考图挂回当前消息。', TOAST_TITLE);
     } else {
         setStatus('图片已经挂到当前这条 AI 消息里。', 'success', '生成完成');
         toastr.success('图片已经挂回当前消息。', TOAST_TITLE);
@@ -7548,20 +8058,19 @@ function onClearPersonaLibraryClick() {
 
 async function onTestApiClick() {
     const settings = ensureSettings();
-    const modelUrls = getImageApiEndpointCandidates(settings, '/models');
+    const providerLabel = getImageProviderLabel(settings);
+    const modelUrls = getImageApiEndpointCandidates(settings, '/models', getActiveImageApiUrl(settings));
 
     if (!modelUrls.length) {
-        setStatus('请先填写生图接口地址。', 'error');
+        setStatus(`请先填写${providerLabel}接口地址。`, 'error');
         return;
     }
 
-    setStatus('正在测试生图接口...', 'busy', '测试接口');
+    setStatus(`正在测试${providerLabel}接口...`, 'busy', '测试接口');
 
     try {
-        const headers = {};
-        if (settings.image_api_key.trim()) {
-            headers.Authorization = `Bearer ${settings.image_api_key.trim()}`;
-        }
+        const headers = buildImageApiHeaders(settings);
+        delete headers['Content-Type'];
 
         let result = null;
         let lastError = null;
@@ -7584,7 +8093,7 @@ async function onTestApiClick() {
 
         const models = Array.isArray(result?.data) ? result.data.map(item => item?.id).filter(Boolean) : [];
         const preview = models.slice(0, 6).join(', ');
-        const message = models.length ? ('生图接口连接正常。可用模型：' + preview) : '生图接口连接正常。';
+        const message = models.length ? (`${providerLabel}接口连接正常。可用模型：` + preview) : `${providerLabel}接口连接正常。`;
 
         setStatus(message, 'success');
         toastr.success(message, TOAST_TITLE);
@@ -7617,14 +8126,21 @@ function loadSettingsIntoUi() {
     $('#st_chatgpt2api_image_prompt_api_system_prompt').val(getPromptAssistantSystemPrompt(settings));
     $('#st_chatgpt2api_image_descriptor_card_system_prompt').val(getCardDescriptorSystemPrompt(settings));
     $('#st_chatgpt2api_image_descriptor_persona_system_prompt').val(getPersonaDescriptorSystemPrompt(settings));
+    $('#st_chatgpt2api_image_provider').val(getImageProvider(settings));
     $('#st_chatgpt2api_image_api_url').val(settings.image_api_url);
     $('#st_chatgpt2api_image_api_key').val(settings.image_api_key);
     $('#st_chatgpt2api_image_model').val(settings.image_model);
+    $('#st_chatgpt2api_image_grok_api_url').val(settings.grok_api_url);
+    $('#st_chatgpt2api_image_grok_api_key').val(settings.grok_api_key);
+    $('#st_chatgpt2api_image_grok_model').val(settings.grok_model);
+    $('#st_chatgpt2api_image_grok_include_reference').prop('checked', settings.grok_chat_include_reference !== false);
+    $('#st_chatgpt2api_image_grok_stream').prop('checked', settings.grok_chat_stream !== false);
     $('#st_chatgpt2api_image_nsfw_guard_enabled').prop('checked', settings.nsfw_guard_enabled);
     $('#st_chatgpt2api_image_nsfw_terms').val(settings.nsfw_terms);
     $('#st_chatgpt2api_image_nsfw_rewrite_hint').val(settings.nsfw_rewrite_hint);
     $('#st_chatgpt2api_image_debug').prop('checked', settings.debug);
     updateConnectionModeUi(settings);
+    updateImageProviderUi(settings);
     refreshProtocolPresetUi();
     refreshDescriptorLibraryUi();
 }
@@ -7634,6 +8150,7 @@ async function addSettingsUi() {
         ensureProtocolPresetUi();
         refreshProtocolPresetUi();
         attachSettingsContentToControlPanel();
+        updateImageProviderUi();
         return;
     }
 
@@ -7658,12 +8175,31 @@ async function addSettingsUi() {
     $(document).on('change', '#st_chatgpt2api_image_connection_mode', function () {
         ensureSettings().connection_mode = String($(this).val() || 'browser');
         updateConnectionModeUi();
+        updateImageProviderUi();
         saveSettingsDebounced();
     });
 
     $(document).on('change', '#st_chatgpt2api_image_prompt_api_mode', function () {
         ensureSettings().prompt_api_mode = String($(this).val() || 'openai');
         updateConnectionModeUi();
+        saveSettingsDebounced();
+    });
+
+    $(document).on('change', '#st_chatgpt2api_image_provider', function () {
+        applyImageProviderSelection($(this).val());
+    });
+
+    $(document).on('click', '.st-chatgpt2api-image-mode-option', function () {
+        applyImageProviderSelection($(this).attr('data-image-provider'));
+    });
+
+    $(document).on('change', '#st_chatgpt2api_image_grok_include_reference', function () {
+        ensureSettings().grok_chat_include_reference = !!$(this).prop('checked');
+        saveSettingsDebounced();
+    });
+
+    $(document).on('change', '#st_chatgpt2api_image_grok_stream', function () {
+        ensureSettings().grok_chat_stream = !!$(this).prop('checked');
         saveSettingsDebounced();
     });
 
@@ -7684,6 +8220,9 @@ async function addSettingsUi() {
     bindSettingInput('#st_chatgpt2api_image_api_url', 'image_api_url', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_api_key', 'image_api_key', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_model', 'image_model', value => String(value || ''));
+    bindSettingInput('#st_chatgpt2api_image_grok_api_url', 'grok_api_url', value => String(value || ''));
+    bindSettingInput('#st_chatgpt2api_image_grok_api_key', 'grok_api_key', value => String(value || ''));
+    bindSettingInput('#st_chatgpt2api_image_grok_model', 'grok_model', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_nsfw_terms', 'nsfw_terms', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_nsfw_rewrite_hint', 'nsfw_rewrite_hint', value => String(value || ''));
 

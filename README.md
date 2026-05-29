@@ -66,7 +66,8 @@ You need:
    - `/models` fetching is also supported
 2. An image API
    - OpenAI-compatible `chatgpt2api` image endpoint is expected
-   - currently uses `/v1/images/generations`
+   - OpenAI Images mode uses `/v1/images/generations`
+   - Grok chat-image mode uses a separate `/v1/chat/completions` configuration and parses absolute or relative returned image URLs
 
 Important:
 
@@ -82,7 +83,9 @@ Important:
 - Prompt API Model
 - Image API Base URL
 - Image API Key
+- Image Provider (`ChatGPT2API / OpenAI Images` or `Grok chat-image`)
 - Image Model
+- Independent Grok API URL, key, model, stream mode, and reference-image toggle
 - Sensitive term guard
 - Character descriptor library
 - Persona descriptor library

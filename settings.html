@@ -13,6 +13,37 @@
     </div>
 
     <div id="st_chatgpt2api_image_settings_content" class="st-chatgpt2api-image-settings-content displayNone">
+        <div class="st-chatgpt2api-image-mode-card m-t-1">
+            <div class="st-chatgpt2api-image-mode-card-header">
+                <div class="st-chatgpt2api-image-mode-card-copy">
+                    <div class="st-chatgpt2api-image-mode-eyebrow">生图模式</div>
+                    <div class="st-chatgpt2api-image-mode-title">选择当前出图链路</div>
+                    <small class="st-chatgpt2api-image-help st-chatgpt2api-image-mode-hint"></small>
+                </div>
+                <div class="st-chatgpt2api-image-mode-badge"></div>
+            </div>
+            <div class="st-chatgpt2api-image-mode-switch" role="radiogroup" aria-label="生图模式">
+                <button class="st-chatgpt2api-image-mode-option" type="button" data-image-provider="chatgpt2api" role="radio" aria-checked="false">
+                    <span class="st-chatgpt2api-image-mode-option-icon"><i class="fa-solid fa-image"></i></span>
+                    <span class="st-chatgpt2api-image-mode-option-copy">
+                        <span>普通生图</span>
+                        <small>ChatGPT2API / OpenAI Images</small>
+                    </span>
+                </button>
+                <button class="st-chatgpt2api-image-mode-option" type="button" data-image-provider="grok" role="radio" aria-checked="false">
+                    <span class="st-chatgpt2api-image-mode-option-icon"><i class="fa-solid fa-bolt"></i></span>
+                    <span class="st-chatgpt2api-image-mode-option-copy">
+                        <span>Grok 生图</span>
+                        <small>聊天模型内置出图额度</small>
+                    </span>
+                </button>
+            </div>
+            <select id="st_chatgpt2api_image_provider" class="displayNone" aria-hidden="true" tabindex="-1">
+                <option value="chatgpt2api">ChatGPT2API / OpenAI Images</option>
+                <option value="grok">Grok 聊天生图</option>
+            </select>
+        </div>
+
         <div class="st-chatgpt2api-image-card m-t-1">
             <div class="st-chatgpt2api-image-card-title">功能开关</div>
             <label class="checkbox_label widthFreeExpand">
@@ -113,22 +144,54 @@
             </div>
         </div>
 
-        <div class="m-t-1">
-            <h4>生图接口地址</h4>
-            <input id="st_chatgpt2api_image_api_url" class="text_pole wide100p" type="text" placeholder="http://43.254.166.19:8888 或 https://your-image-api.example.com/v1" />
+        <div id="st_chatgpt2api_image_chatgpt2api_options" class="st-chatgpt2api-image-card m-t-1">
+            <div class="st-chatgpt2api-image-card-title">ChatGPT2API 生图配置</div>
+            <div class="m-t-1">
+                <h4>接口地址</h4>
+                <input id="st_chatgpt2api_image_api_url" class="text_pole wide100p" type="text" placeholder="https://your-image-api.example.com/v1" />
+                <small class="st-chatgpt2api-image-help">
+                    兼容填写到根地址、<code>/v1</code> 地址，或完整的 <code>/images/generations</code> 路径。
+                </small>
+            </div>
+            <div class="m-t-1">
+                <h4>接口密钥</h4>
+                <input id="st_chatgpt2api_image_api_key" class="text_pole wide100p" type="password" placeholder="Bearer Token" autocomplete="off" />
+            </div>
+            <div class="m-t-1">
+                <h4>模型</h4>
+                <input id="st_chatgpt2api_image_model" class="text_pole wide100p" type="text" placeholder="gpt-image-2" />
+            </div>
+        </div>
+
+        <div id="st_chatgpt2api_image_grok_options" class="st-chatgpt2api-image-card m-t-1 displayNone">
+            <div class="st-chatgpt2api-image-card-title">Grok 聊天生图配置</div>
+            <div class="m-t-1">
+                <h4>接口地址</h4>
+                <input id="st_chatgpt2api_image_grok_api_url" class="text_pole wide100p" type="text" placeholder="https://your-grok2api.example.com/v1" />
+                <small class="st-chatgpt2api-image-help">
+                    使用我们拆出来的 Grok 生图渠道，推荐填写 New API 的 <code>/v1</code> 地址。
+                </small>
+            </div>
+            <div class="m-t-1">
+                <h4>接口密钥</h4>
+                <input id="st_chatgpt2api_image_grok_api_key" class="text_pole wide100p" type="password" placeholder="Bearer Token" autocomplete="off" />
+            </div>
+            <div class="m-t-1">
+                <h4>模型</h4>
+                <input id="st_chatgpt2api_image_grok_model" class="text_pole wide100p" type="text" placeholder="grok-4.1-fast-image" />
+            </div>
+            <label class="checkbox_label widthFreeExpand">
+                <input id="st_chatgpt2api_image_grok_include_reference" type="checkbox" />
+                <span>把当前消息已挂载图片作为参考图</span>
+            </label>
+            <label class="checkbox_label widthFreeExpand">
+                <input id="st_chatgpt2api_image_grok_stream" type="checkbox" />
+                <span>使用流式返回解析图片</span>
+            </label>
             <small class="st-chatgpt2api-image-help">
-                扩展兼容填写到根地址、<code>/v1</code> 地址，或完整的 <code>/images/generations</code> 路径。云酒馆的酒馆模式会优先尝试走 SillyTavern 自带的 <code>/proxy</code> 通用代理；如果接口本身支持 HTTPS 和 CORS，也可以直接填写外部地址。
+                当前消息里已有图片时，可以转成 data URL 一起发给聊天模型。流式模式只建议在浏览器直连时使用。
             </small>
-        </div>
-
-        <div class="m-t-1">
-            <h4>生图接口密钥</h4>
-            <input id="st_chatgpt2api_image_api_key" class="text_pole wide100p" type="password" placeholder="Bearer Token" autocomplete="off" />
-        </div>
-
-        <div class="m-t-1">
-            <h4>生图模型</h4>
-            <input id="st_chatgpt2api_image_model" class="text_pole wide100p" type="text" placeholder="gpt-image-2" />
+            <small id="st_chatgpt2api_image_grok_stream_hint" class="st-chatgpt2api-image-help"></small>
         </div>
 
         <div class="st-chatgpt2api-image-card m-t-1">
