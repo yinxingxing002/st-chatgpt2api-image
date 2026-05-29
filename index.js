@@ -1144,6 +1144,7 @@ function updateImageProviderUi(settings = ensureSettings()) {
             ? '酒馆代理模式会自动改用非流式请求，避免通用代理对长连接流式响应 60 秒超时。'
             : '浏览器直连模式可以启用流式解析；如果遇到超时或卡住，可以关闭它。',
     );
+    syncQuickModelConfigUi(settings);
 }
 
 function applyGrokProtocolPresetToSettings(settings = ensureSettings()) {
@@ -6095,6 +6096,37 @@ function attachSettingsContentToControlPanel() {
     }
 }
 
+function syncQuickModelConfigUi(settings = ensureSettings()) {
+    $('#st_chatgpt2api_image_quick_prompt_api_model').val(settings.prompt_api_model || '');
+    $('#st_chatgpt2api_image_quick_image_model').val(settings.image_model || '');
+    $('#st_chatgpt2api_image_quick_grok_model').val(settings.grok_model || '');
+    $('#st_chatgpt2api_image_quick_provider_badge').text(`当前：${isGrokImageProvider(settings) ? 'Grok' : '普通'}`);
+}
+
+function focusModelQuickConfig() {
+    const target = $('#st_chatgpt2api_image_model_quick_config');
+    if (!target.length) {
+        return;
+    }
+
+    target.addClass('is-focus-pulse');
+    window.setTimeout(() => target.removeClass('is-focus-pulse'), 1200);
+    target[0].scrollIntoView({ block: 'start', behavior: 'smooth' });
+
+    window.setTimeout(() => {
+        const firstInput = $('#st_chatgpt2api_image_quick_prompt_api_model');
+        if (firstInput.length) {
+            firstInput.trigger('focus');
+        }
+    }, 180);
+}
+
+function openModelConfigPanel() {
+    openControlPanel();
+    syncQuickModelConfigUi();
+    window.setTimeout(focusModelQuickConfig, 80);
+}
+
 function getPanelPromptValue() {
     return String($('#st_chatgpt2api_image_panel_prompt').val() || '').trim();
 }
@@ -8193,6 +8225,13 @@ async function addSettingsUi() {
         applyImageProviderSelection($(this).attr('data-image-provider'));
     });
 
+    $(document).on('click', '#st_chatgpt2api_image_panel_model_config, #st_chatgpt2api_image_open_model_config', function () {
+        openModelConfigPanel();
+    });
+
+    $(document).on('click', '#st_chatgpt2api_image_quick_fetch_prompt_models', onFetchPromptModelsClick);
+    $(document).on('click', '#st_chatgpt2api_image_quick_test_image_api', onTestApiClick);
+
     $(document).on('change', '#st_chatgpt2api_image_grok_include_reference', function () {
         ensureSettings().grok_chat_include_reference = !!$(this).prop('checked');
         saveSettingsDebounced();
@@ -8225,6 +8264,36 @@ async function addSettingsUi() {
     bindSettingInput('#st_chatgpt2api_image_grok_model', 'grok_model', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_nsfw_terms', 'nsfw_terms', value => String(value || ''));
     bindSettingInput('#st_chatgpt2api_image_nsfw_rewrite_hint', 'nsfw_rewrite_hint', value => String(value || ''));
+
+    $(document).on('input change', '#st_chatgpt2api_image_quick_prompt_api_model', function () {
+        const value = String($(this).val() || '');
+        ensureSettings().prompt_api_model = value;
+        $('#st_chatgpt2api_image_prompt_api_model').val(value);
+        saveSettingsDebounced();
+        populatePromptApiModelSelector();
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_quick_image_model', function () {
+        const value = String($(this).val() || '');
+        ensureSettings().image_model = value;
+        $('#st_chatgpt2api_image_model').val(value);
+        saveSettingsDebounced();
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_quick_grok_model', function () {
+        const value = String($(this).val() || '');
+        ensureSettings().grok_model = value;
+        $('#st_chatgpt2api_image_grok_model').val(value);
+        saveSettingsDebounced();
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_model', function () {
+        $('#st_chatgpt2api_image_quick_image_model').val(String($(this).val() || ''));
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_grok_model', function () {
+        $('#st_chatgpt2api_image_quick_grok_model').val(String($(this).val() || ''));
+    });
 
     $(document).on(
         'input change',
@@ -8259,6 +8328,7 @@ async function addSettingsUi() {
 
     $(document).on('input change', '#st_chatgpt2api_image_prompt_api_model', function () {
         ensureSettings().prompt_api_model = String($(this).val() || '');
+        $('#st_chatgpt2api_image_quick_prompt_api_model').val(ensureSettings().prompt_api_model);
         saveSettingsDebounced();
         populatePromptApiModelSelector();
     });
@@ -8267,6 +8337,7 @@ async function addSettingsUi() {
         const value = String($(this).val() || '');
         ensureSettings().prompt_api_model = value;
         $('#st_chatgpt2api_image_prompt_api_model').val(value);
+        $('#st_chatgpt2api_image_quick_prompt_api_model').val(value);
         saveSettingsDebounced();
         populatePromptApiModelSelector();
     });

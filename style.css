@@ -39,7 +39,14 @@
     gap: 5px;
 }
 
-.st-chatgpt2api-image-settings #st_chatgpt2api_image_open_control_panel {
+.st-chatgpt2api-image-settings .st-chatgpt2api-image-launcher-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.st-chatgpt2api-image-settings .st-chatgpt2api-image-launcher-actions .menu_button {
     align-self: flex-start;
 }
 
@@ -53,6 +60,51 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+}
+
+.st-chatgpt2api-image-model-config-card {
+    border-color: rgba(99, 213, 204, 0.24);
+    background:
+        linear-gradient(135deg, rgba(99, 213, 204, 0.12), rgba(255, 159, 98, 0.1)),
+        rgba(16, 21, 31, 0.72);
+}
+
+.st-chatgpt2api-image-model-config-card.is-focus-pulse {
+    animation: st-chatgpt2api-image-focus-pulse 1.15s ease;
+}
+
+.st-chatgpt2api-image-model-config-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 26px;
+    padding: 0 10px;
+    border-radius: 999px;
+    border: 1px solid rgba(99, 213, 204, 0.26);
+    background: rgba(99, 213, 204, 0.1);
+    color: var(--st-chatgpt2api-image-ink);
+    font-size: 12px;
+    font-weight: 800;
+    white-space: nowrap;
+}
+
+.st-chatgpt2api-image-model-config-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+
+.st-chatgpt2api-image-model-config-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.st-chatgpt2api-image-model-config-field > span {
+    color: var(--st-chatgpt2api-image-ink-soft);
+    font-size: 12px;
+    font-weight: 700;
 }
 
 .st-chatgpt2api-image-mode-card {
@@ -1122,7 +1174,7 @@
 
 .st-chatgpt2api-image-panel-actions {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 10px;
     align-items: stretch;
 }
@@ -1407,18 +1459,45 @@
     }
 }
 
+@keyframes st-chatgpt2api-image-focus-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(99, 213, 204, 0.34);
+        border-color: rgba(99, 213, 204, 0.48);
+    }
+
+    70% {
+        box-shadow: 0 0 0 12px rgba(99, 213, 204, 0);
+    }
+
+    100% {
+        box-shadow: none;
+    }
+}
+
 @media screen and (max-width: 900px) {
     .st-chatgpt2api-image-control-panel {
-        min-width: unset;
-        width: calc(100vw - 12px);
-        max-width: calc(100vw - 12px);
-        top: calc(var(--topBarBlockSize) + 6px);
-        right: 6px;
-        left: 6px;
+        position: fixed !important;
+        box-sizing: border-box;
+        min-width: 0 !important;
+        width: calc(100vw - 12px) !important;
+        max-width: calc(100vw - 12px) !important;
+        top: calc(var(--topBarBlockSize) + 6px) !important;
+        right: 6px !important;
+        left: 6px !important;
+        bottom: auto !important;
         padding: 8px;
         border-radius: 18px;
         max-height: calc(100vh - var(--topBarBlockSize) - 12px);
         max-height: calc(100dvh - var(--topBarBlockSize) - 12px);
+    }
+
+    #movingDivs > .st-chatgpt2api-image-control-panel {
+        min-width: 0 !important;
+        width: calc(100dvw - 12px) !important;
+        max-width: calc(100dvw - 12px) !important;
+        height: auto !important;
+        left: 6px !important;
+        right: auto !important;
     }
 
     .st-chatgpt2api-image-control-panel.is-maximized {
@@ -1429,6 +1508,25 @@
         max-height: calc(100vh - var(--topBarBlockSize) - 6px);
         max-height: calc(100dvh - var(--topBarBlockSize) - 6px);
         top: calc(var(--topBarBlockSize) + 3px) !important;
+    }
+
+    #movingDivs > .st-chatgpt2api-image-control-panel.is-maximized {
+        width: calc(100dvw - 6px) !important;
+        max-width: calc(100dvw - 6px) !important;
+        height: calc(100dvh - var(--topBarBlockSize) - 6px) !important;
+        left: 3px !important;
+        right: auto !important;
+    }
+
+    .st-chatgpt2api-image-control-panel-body {
+        flex: 1 1 auto;
+        min-height: 0;
+        overflow-y: auto;
+    }
+
+    .st-chatgpt2api-image-settings-content,
+    .st-chatgpt2api-image-control-panel-settings-slot {
+        min-width: 0;
     }
 
     .st-chatgpt2api-image-control-panel .panelControlBar {
@@ -1447,12 +1545,29 @@
     }
 
     .st-chatgpt2api-image-panel {
-        min-width: unset;
-        width: calc(100vw - 16px);
-        max-width: calc(100vw - 16px);
-        top: calc(var(--topBarBlockSize) + 8px);
+        position: fixed !important;
+        box-sizing: border-box;
+        min-width: 0 !important;
+        width: calc(100vw - 16px) !important;
+        max-width: calc(100vw - 16px) !important;
+        top: calc(var(--topBarBlockSize) + 8px) !important;
+        left: 8px !important;
+        right: 8px !important;
+        bottom: auto !important;
+        margin: 0 !important;
         padding: 10px;
         border-radius: 20px;
+        max-height: calc(100vh - var(--topBarBlockSize) - 16px);
+        max-height: calc(100dvh - var(--topBarBlockSize) - 16px);
+    }
+
+    #movingDivs > .st-chatgpt2api-image-panel {
+        min-width: 0 !important;
+        width: calc(100dvw - 16px) !important;
+        max-width: calc(100dvw - 16px) !important;
+        height: auto !important;
+        left: 8px !important;
+        right: auto !important;
     }
 
     .st-chatgpt2api-image-panel.is-maximized {
@@ -1462,6 +1577,19 @@
         height: calc(100dvh - var(--topBarBlockSize) - 8px);
         max-height: calc(100vh - var(--topBarBlockSize) - 8px);
         max-height: calc(100dvh - var(--topBarBlockSize) - 8px);
+    }
+
+    #movingDivs > .st-chatgpt2api-image-panel.is-maximized {
+        width: calc(100dvw - 8px) !important;
+        max-width: calc(100dvw - 8px) !important;
+        height: calc(100dvh - var(--topBarBlockSize) - 8px) !important;
+        left: 4px !important;
+        right: auto !important;
+    }
+
+    .st-chatgpt2api-image-panel-body {
+        flex: 1 1 auto;
+        min-height: 0;
     }
 
     .st-chatgpt2api-image-panel .panelControlBar,
@@ -1482,6 +1610,10 @@
     .st-chatgpt2api-image-mode-switch,
     .st-chatgpt2api-image-mode-switch.is-compact {
         width: 100%;
+    }
+
+    .st-chatgpt2api-image-model-config-grid {
+        grid-template-columns: 1fr;
     }
 
     .st-chatgpt2api-image-panel textarea {

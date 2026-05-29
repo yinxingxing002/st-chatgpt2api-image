@@ -6,9 +6,15 @@
                 设置区已经升级为悬浮控制台。你可以从这里快速打开，也可以从生图面板右上角直接进入。
             </small>
         </div>
-        <div id="st_chatgpt2api_image_open_control_panel" class="menu_button menu_button_icon">
-            <i class="fa-solid fa-sliders"></i>
-            <span>打开悬浮控制台</span>
+        <div class="st-chatgpt2api-image-launcher-actions">
+            <div id="st_chatgpt2api_image_open_model_config" class="menu_button menu_button_icon">
+                <i class="fa-solid fa-sliders"></i>
+                <span>模型配置</span>
+            </div>
+            <div id="st_chatgpt2api_image_open_control_panel" class="menu_button menu_button_icon">
+                <i class="fa-solid fa-table-columns"></i>
+                <span>打开控制台</span>
+            </div>
         </div>
     </div>
 
@@ -42,6 +48,40 @@
                 <option value="chatgpt2api">ChatGPT2API / OpenAI Images</option>
                 <option value="grok">Grok 聊天生图</option>
             </select>
+        </div>
+
+        <div id="st_chatgpt2api_image_model_quick_config" class="st-chatgpt2api-image-card st-chatgpt2api-image-model-config-card m-t-1">
+            <div class="st-chatgpt2api-image-card-header">
+                <div>
+                    <div class="st-chatgpt2api-image-card-title">模型快捷配置</div>
+                    <small class="st-chatgpt2api-image-help">这里集中配置提示词模型和生图模型，聊天面板里的“模型配置”按钮会直接跳到这里。</small>
+                </div>
+                <small id="st_chatgpt2api_image_quick_provider_badge" class="st-chatgpt2api-image-model-config-badge">当前：普通</small>
+            </div>
+            <div class="st-chatgpt2api-image-model-config-grid m-t-1">
+                <label class="st-chatgpt2api-image-model-config-field">
+                    <span>提示词模型</span>
+                    <input id="st_chatgpt2api_image_quick_prompt_api_model" class="text_pole wide100p" type="text" placeholder="gcli-gemini-3-flash-preview" />
+                </label>
+                <label class="st-chatgpt2api-image-model-config-field">
+                    <span>普通生图模型</span>
+                    <input id="st_chatgpt2api_image_quick_image_model" class="text_pole wide100p" type="text" placeholder="gpt-image-2" />
+                </label>
+                <label class="st-chatgpt2api-image-model-config-field">
+                    <span>Grok 生图模型</span>
+                    <input id="st_chatgpt2api_image_quick_grok_model" class="text_pole wide100p" type="text" placeholder="grok-4.1-fast-image" />
+                </label>
+            </div>
+            <div class="flex-container gap5px flexWrap m-t-1">
+                <div id="st_chatgpt2api_image_quick_fetch_prompt_models" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-arrows-rotate"></i>
+                    <span>拉取提示词模型</span>
+                </div>
+                <div id="st_chatgpt2api_image_quick_test_image_api" class="menu_button menu_button_icon">
+                    <i class="fa-solid fa-plug-circle-check"></i>
+                    <span>测试当前生图接口</span>
+                </div>
+            </div>
         </div>
 
         <div class="st-chatgpt2api-image-card m-t-1">
