@@ -633,11 +633,13 @@ const defaultSettings = {
     image_api_key: '',
     image_api_mode: IMAGE_API_MODE_IMAGES,
     image_model: 'gpt-image-2',
+    image_model_options: [],
     image_chat_include_reference: true,
     image_chat_stream: true,
     grok_api_url: '',
     grok_api_key: '',
     grok_model: DEFAULT_GROK_CHAT_IMAGE_MODEL,
+    grok_model_options: [],
     grok_chat_include_reference: true,
     grok_chat_stream: false,
     nsfw_guard_enabled: true,
@@ -769,6 +771,10 @@ function getImageProviderLabel(settings = ensureSettings()) {
     return isGrokImageProvider(settings) ? 'Grok 聊天生图' : 'ChatGPT2API 生图';
 }
 
+function getImageProviderLabelByValue(provider = IMAGE_PROVIDER_CHATGPT2API) {
+    return normalizeImageProvider(provider) === IMAGE_PROVIDER_GROK ? 'Grok 聊天生图' : 'ChatGPT2API 生图';
+}
+
 function getChatGpt2ApiImageModel(settings = ensureSettings()) {
     return String(settings.image_model || '').trim() || defaultSettings.image_model;
 }
@@ -783,6 +789,14 @@ function getActiveImageApiUrl(settings = ensureSettings()) {
 
 function getActiveImageApiKey(settings = ensureSettings()) {
     return isGrokImageProvider(settings) ? settings.grok_api_key : settings.image_api_key;
+}
+
+function getImageApiUrlByProvider(settings = ensureSettings(), provider = getImageProvider(settings)) {
+    return normalizeImageProvider(provider) === IMAGE_PROVIDER_GROK ? settings.grok_api_url : settings.image_api_url;
+}
+
+function getImageApiKeyByProvider(settings = ensureSettings(), provider = getImageProvider(settings)) {
+    return normalizeImageProvider(provider) === IMAGE_PROVIDER_GROK ? settings.grok_api_key : settings.image_api_key;
 }
 
 function shouldUseGrokChatStream(settings = ensureSettings()) {
@@ -2909,9 +2923,9 @@ function buildFriendlyFetchFailureMessage(url, error) {
     return '浏览器无法直接访问该接口，请检查接口地址、协议和网络连通性。';
 }
 
-function shouldPreferTavernImageProxy(settings = ensureSettings()) {
+function shouldPreferTavernImageProxy(settings = ensureSettings(), baseUrl = getActiveImageApiUrl(settings)) {
     return isTavernConnectionMode(settings)
-        && isAbsoluteHttpUrl(getActiveImageApiUrl(settings));
+        && isAbsoluteHttpUrl(baseUrl);
 }
 
 function getImageApiBaseCandidates(settings = ensureSettings(), baseUrl = getActiveImageApiUrl(settings)) {
@@ -2930,7 +2944,7 @@ function getImageApiEndpointCandidates(settings = ensureSettings(), endpointPath
             .filter(Boolean),
     );
 
-    if (!shouldPreferTavernImageProxy(settings)) {
+    if (!shouldPreferTavernImageProxy(settings, baseUrl)) {
         return directEndpoints;
     }
 
@@ -6107,6 +6121,8 @@ function syncQuickModelConfigUi(settings = ensureSettings()) {
     $('#st_chatgpt2api_image_quick_grok_api_key').val(settings.grok_api_key || '');
     $('#st_chatgpt2api_image_quick_grok_model').val(settings.grok_model || '');
     $('#st_chatgpt2api_image_quick_provider_badge').text(`当前：${isGrokImageProvider(settings) ? 'Grok' : '普通'}`);
+    populatePromptApiModelSelector();
+    populateImageModelSelectors(settings);
 }
 
 function focusModelQuickConfig() {
@@ -7557,14 +7573,90 @@ function ensurePromptApiConfigured(settings = ensureSettings()) {
 }
 
 function populatePromptApiModelSelector() {
-    const select = $('#st_chatgpt2api_image_prompt_api_model_select');
+    const settings = ensureSettings();
+    const models = uniqueStrings(Array.isArray(settings.prompt_api_model_options) ? settings.prompt_api_model_options : []);
+    const currentModel = String(settings.prompt_api_model || '').trim();
+    const options = currentModel && !models.includes(currentModel)
+        ? [currentModel, ...models]
+        : models;
+
+    const selectors = [
+        '#st_chatgpt2api_image_prompt_api_model_select',
+        '#st_chatgpt2api_image_quick_prompt_api_model_select',
+    ];
+
+    for (const selector of selectors) {
+        const select = $(selector);
+        if (!select.length) {
+            continue;
+        }
+
+        select.empty();
+        select.append(`<option value="">${options.length ? '从列表中选择模型' : '先拉取模型列表'}</option>`);
+
+        for (const model of options) {
+            const label = model === currentModel && !models.includes(currentModel)
+                ? `当前模型: ${model}`
+                : model;
+            select.append($('<option></option>').val(model).text(label));
+        }
+
+        select.val(currentModel || '');
+    }
+}
+
+function getImageModelOptions(settings = ensureSettings(), provider = getImageProvider(settings)) {
+    const normalizedProvider = normalizeImageProvider(provider);
+    const rawOptions = normalizedProvider === IMAGE_PROVIDER_GROK
+        ? settings.grok_model_options
+        : settings.image_model_options;
+    return uniqueStrings(Array.isArray(rawOptions) ? rawOptions : []);
+}
+
+function getImageModelValue(settings = ensureSettings(), provider = getImageProvider(settings)) {
+    return normalizeImageProvider(provider) === IMAGE_PROVIDER_GROK
+        ? getGrokImageModel(settings)
+        : getChatGpt2ApiImageModel(settings);
+}
+
+function setImageModelValue(settings = ensureSettings(), provider = getImageProvider(settings), value = '') {
+    const model = String(value || '').trim();
+
+    if (normalizeImageProvider(provider) === IMAGE_PROVIDER_GROK) {
+        settings.grok_model = model;
+        $('#st_chatgpt2api_image_grok_model').val(model);
+        $('#st_chatgpt2api_image_quick_grok_model').val(model);
+    } else {
+        settings.image_model = model;
+        $('#st_chatgpt2api_image_model').val(model);
+        $('#st_chatgpt2api_image_quick_image_model').val(model);
+    }
+}
+
+function setImageModelOptions(settings = ensureSettings(), provider = getImageProvider(settings), models = []) {
+    const options = uniqueStrings(models);
+
+    if (normalizeImageProvider(provider) === IMAGE_PROVIDER_GROK) {
+        settings.grok_model_options = options;
+    } else {
+        settings.image_model_options = options;
+    }
+
+    return options;
+}
+
+function populateImageModelSelector(provider = IMAGE_PROVIDER_CHATGPT2API, settings = ensureSettings()) {
+    const normalizedProvider = normalizeImageProvider(provider);
+    const selector = normalizedProvider === IMAGE_PROVIDER_GROK
+        ? '#st_chatgpt2api_image_quick_grok_model_select'
+        : '#st_chatgpt2api_image_quick_image_model_select';
+    const select = $(selector);
     if (!select.length) {
         return;
     }
 
-    const settings = ensureSettings();
-    const models = uniqueStrings(Array.isArray(settings.prompt_api_model_options) ? settings.prompt_api_model_options : []);
-    const currentModel = String(settings.prompt_api_model || '').trim();
+    const models = getImageModelOptions(settings, normalizedProvider);
+    const currentModel = String(getImageModelValue(settings, normalizedProvider) || '').trim();
     const options = currentModel && !models.includes(currentModel)
         ? [currentModel, ...models]
         : models;
@@ -7580,6 +7672,11 @@ function populatePromptApiModelSelector() {
     }
 
     select.val(currentModel || '');
+}
+
+function populateImageModelSelectors(settings = ensureSettings()) {
+    populateImageModelSelector(IMAGE_PROVIDER_CHATGPT2API, settings);
+    populateImageModelSelector(IMAGE_PROVIDER_GROK, settings);
 }
 
 function setCardDescriptorCandidateSelection(selectedIds) {
@@ -8094,42 +8191,82 @@ function onClearPersonaLibraryClick() {
     toastr.success('当前用户人设词已清空。', TOAST_TITLE);
 }
 
-async function onTestApiClick() {
+async function fetchImageModelsForProvider(provider = getImageProvider(), { updateStatus = true } = {}) {
     const settings = ensureSettings();
-    const providerLabel = getImageProviderLabel(settings);
-    const modelUrls = getImageApiEndpointCandidates(settings, '/models', getActiveImageApiUrl(settings));
+    const normalizedProvider = normalizeImageProvider(provider);
+    const providerLabel = getImageProviderLabelByValue(normalizedProvider);
+    const apiUrl = getImageApiUrlByProvider(settings, normalizedProvider);
+    const apiKey = getImageApiKeyByProvider(settings, normalizedProvider);
+    const modelUrls = getImageApiEndpointCandidates(settings, '/models', apiUrl);
 
     if (!modelUrls.length) {
-        setStatus(`请先填写${providerLabel}接口地址。`, 'error');
-        return;
+        throw new Error(`请先填写${providerLabel}接口地址。`);
     }
+
+    if (updateStatus) {
+        setStatus(`正在拉取${providerLabel}模型列表...`, 'busy', '拉取模型');
+    }
+
+    const headers = buildImageApiHeaders(settings, apiKey);
+    delete headers['Content-Type'];
+
+    let result = null;
+    let lastError = null;
+
+    for (const modelsUrl of modelUrls) {
+        try {
+            result = await fetchJsonOrText(modelsUrl, {
+                method: 'GET',
+                headers,
+            });
+            break;
+        } catch (error) {
+            lastError = error;
+        }
+    }
+
+    if (!result) {
+        throw lastError || new Error('生图接口连接失败。');
+    }
+
+    const models = setImageModelOptions(settings, normalizedProvider, extractPromptApiModelIds(result));
+    if (!String(getImageModelValue(settings, normalizedProvider) || '').trim() && models.length) {
+        setImageModelValue(settings, normalizedProvider, models[0]);
+    }
+    populateImageModelSelectors(settings);
+    saveSettingsDebounced();
+
+    return models;
+}
+
+async function onFetchImageModelsClick(provider = getImageProvider()) {
+    const normalizedProvider = normalizeImageProvider(provider);
+    const providerLabel = getImageProviderLabelByValue(normalizedProvider);
+
+    try {
+        const models = await fetchImageModelsForProvider(normalizedProvider);
+        const preview = models.slice(0, 6).join(', ');
+        const message = models.length
+            ? `${providerLabel}模型列表已更新：${preview}`
+            : `${providerLabel}接口连接正常，但没有返回模型列表。`;
+        setStatus(message, 'success');
+        toastr.success(message, TOAST_TITLE);
+    } catch (error) {
+        console.error('Image model fetch failed', error);
+        setStatus(`${providerLabel}模型拉取失败：${error.message}`, 'error');
+        toastr.error(error.message || '未知错误', TOAST_TITLE);
+    }
+}
+
+async function onTestApiClick() {
+    const settings = ensureSettings();
+    const provider = getImageProvider(settings);
+    const providerLabel = getImageProviderLabel(settings);
 
     setStatus(`正在测试${providerLabel}接口...`, 'busy', '测试接口');
 
     try {
-        const headers = buildImageApiHeaders(settings);
-        delete headers['Content-Type'];
-
-        let result = null;
-        let lastError = null;
-
-        for (const modelsUrl of modelUrls) {
-            try {
-                result = await fetchJsonOrText(modelsUrl, {
-                    method: 'GET',
-                    headers,
-                });
-                break;
-            } catch (error) {
-                lastError = error;
-            }
-        }
-
-        if (!result) {
-            throw lastError || new Error('生图接口连接失败。');
-        }
-
-        const models = Array.isArray(result?.data) ? result.data.map(item => item?.id).filter(Boolean) : [];
+        const models = await fetchImageModelsForProvider(provider, { updateStatus: false });
         const preview = models.slice(0, 6).join(', ');
         const message = models.length ? (`${providerLabel}接口连接正常。可用模型：` + preview) : `${providerLabel}接口连接正常。`;
 
@@ -8236,6 +8373,9 @@ async function addSettingsUi() {
     });
 
     $(document).on('click', '#st_chatgpt2api_image_quick_fetch_prompt_models', onFetchPromptModelsClick);
+    $(document).on('click', '.st-chatgpt2api-image-fetch-image-models', function () {
+        onFetchImageModelsClick($(this).attr('data-image-provider'));
+    });
     $(document).on('click', '#st_chatgpt2api_image_quick_test_image_api', onTestApiClick);
 
     $(document).on('input change', '#st_chatgpt2api_image_quick_prompt_api_url', function () {
@@ -8325,24 +8465,32 @@ async function addSettingsUi() {
 
     $(document).on('input change', '#st_chatgpt2api_image_quick_image_model', function () {
         const value = String($(this).val() || '');
-        ensureSettings().image_model = value;
-        $('#st_chatgpt2api_image_model').val(value);
+        const settings = ensureSettings();
+        setImageModelValue(settings, IMAGE_PROVIDER_CHATGPT2API, value);
         saveSettingsDebounced();
+        populateImageModelSelector(IMAGE_PROVIDER_CHATGPT2API, settings);
     });
 
     $(document).on('input change', '#st_chatgpt2api_image_quick_grok_model', function () {
         const value = String($(this).val() || '');
-        ensureSettings().grok_model = value;
-        $('#st_chatgpt2api_image_grok_model').val(value);
+        const settings = ensureSettings();
+        setImageModelValue(settings, IMAGE_PROVIDER_GROK, value);
         saveSettingsDebounced();
+        populateImageModelSelector(IMAGE_PROVIDER_GROK, settings);
     });
 
     $(document).on('input change', '#st_chatgpt2api_image_model', function () {
-        $('#st_chatgpt2api_image_quick_image_model').val(String($(this).val() || ''));
+        const settings = ensureSettings();
+        setImageModelValue(settings, IMAGE_PROVIDER_CHATGPT2API, $(this).val());
+        saveSettingsDebounced();
+        populateImageModelSelector(IMAGE_PROVIDER_CHATGPT2API, settings);
     });
 
     $(document).on('input change', '#st_chatgpt2api_image_grok_model', function () {
-        $('#st_chatgpt2api_image_quick_grok_model').val(String($(this).val() || ''));
+        const settings = ensureSettings();
+        setImageModelValue(settings, IMAGE_PROVIDER_GROK, $(this).val());
+        saveSettingsDebounced();
+        populateImageModelSelector(IMAGE_PROVIDER_GROK, settings);
     });
 
     $(document).on('input change', '#st_chatgpt2api_image_prompt_api_url', function () {
@@ -8407,13 +8555,27 @@ async function addSettingsUi() {
         populatePromptApiModelSelector();
     });
 
-    $(document).on('change', '#st_chatgpt2api_image_prompt_api_model_select', function () {
+    $(document).on('change', '#st_chatgpt2api_image_prompt_api_model_select, #st_chatgpt2api_image_quick_prompt_api_model_select', function () {
         const value = String($(this).val() || '');
         ensureSettings().prompt_api_model = value;
         $('#st_chatgpt2api_image_prompt_api_model').val(value);
         $('#st_chatgpt2api_image_quick_prompt_api_model').val(value);
         saveSettingsDebounced();
         populatePromptApiModelSelector();
+    });
+
+    $(document).on('change', '#st_chatgpt2api_image_quick_image_model_select', function () {
+        const settings = ensureSettings();
+        setImageModelValue(settings, IMAGE_PROVIDER_CHATGPT2API, $(this).val());
+        saveSettingsDebounced();
+        populateImageModelSelector(IMAGE_PROVIDER_CHATGPT2API, settings);
+    });
+
+    $(document).on('change', '#st_chatgpt2api_image_quick_grok_model_select', function () {
+        const settings = ensureSettings();
+        setImageModelValue(settings, IMAGE_PROVIDER_GROK, $(this).val());
+        saveSettingsDebounced();
+        populateImageModelSelector(IMAGE_PROVIDER_GROK, settings);
     });
 
     $(document).on('change', '#st_chatgpt2api_image_protocol_preset_select', function () {

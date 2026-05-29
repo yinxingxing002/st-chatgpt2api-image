@@ -124,6 +124,17 @@
     font-weight: 700;
 }
 
+.st-chatgpt2api-image-model-config-tools {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.st-chatgpt2api-image-model-config-tools .menu_button {
+    min-height: 32px;
+    padding-inline: 10px;
+}
+
 .st-chatgpt2api-image-mode-card {
     display: flex;
     flex-direction: column;

@@ -73,6 +73,15 @@
                         <span>模型</span>
                         <input id="st_chatgpt2api_image_quick_prompt_api_model" class="text_pole wide100p" type="text" placeholder="gcli-gemini-3-flash-preview" />
                     </label>
+                    <div class="st-chatgpt2api-image-model-config-tools">
+                        <div id="st_chatgpt2api_image_quick_fetch_prompt_models" class="menu_button menu_button_icon">
+                            <i class="fa-solid fa-arrows-rotate"></i>
+                            <span>拉取模型</span>
+                        </div>
+                    </div>
+                    <select id="st_chatgpt2api_image_quick_prompt_api_model_select" class="text_pole wide100p">
+                        <option value="">先拉取模型列表</option>
+                    </select>
                 </div>
 
                 <div class="st-chatgpt2api-image-model-config-group">
@@ -89,6 +98,15 @@
                         <span>模型</span>
                         <input id="st_chatgpt2api_image_quick_image_model" class="text_pole wide100p" type="text" placeholder="gpt-image-2" />
                     </label>
+                    <div class="st-chatgpt2api-image-model-config-tools">
+                        <div class="menu_button menu_button_icon st-chatgpt2api-image-fetch-image-models" data-image-provider="chatgpt2api">
+                            <i class="fa-solid fa-arrows-rotate"></i>
+                            <span>拉取模型</span>
+                        </div>
+                    </div>
+                    <select id="st_chatgpt2api_image_quick_image_model_select" class="text_pole wide100p">
+                        <option value="">先拉取模型列表</option>
+                    </select>
                 </div>
 
                 <div class="st-chatgpt2api-image-model-config-group">
@@ -105,13 +123,18 @@
                         <span>模型</span>
                         <input id="st_chatgpt2api_image_quick_grok_model" class="text_pole wide100p" type="text" placeholder="grok-4.1-fast-image" />
                     </label>
+                    <div class="st-chatgpt2api-image-model-config-tools">
+                        <div class="menu_button menu_button_icon st-chatgpt2api-image-fetch-image-models" data-image-provider="grok">
+                            <i class="fa-solid fa-arrows-rotate"></i>
+                            <span>拉取模型</span>
+                        </div>
+                    </div>
+                    <select id="st_chatgpt2api_image_quick_grok_model_select" class="text_pole wide100p">
+                        <option value="">先拉取模型列表</option>
+                    </select>
                 </div>
             </div>
             <div class="flex-container gap5px flexWrap m-t-1">
-                <div id="st_chatgpt2api_image_quick_fetch_prompt_models" class="menu_button menu_button_icon">
-                    <i class="fa-solid fa-arrows-rotate"></i>
-                    <span>拉取提示词模型</span>
-                </div>
                 <div id="st_chatgpt2api_image_quick_test_image_api" class="menu_button menu_button_icon">
                     <i class="fa-solid fa-plug-circle-check"></i>
                     <span>测试当前生图接口</span>
