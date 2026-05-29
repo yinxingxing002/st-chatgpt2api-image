@@ -59,18 +59,53 @@
                 <small id="st_chatgpt2api_image_quick_provider_badge" class="st-chatgpt2api-image-model-config-badge">当前：普通</small>
             </div>
             <div class="st-chatgpt2api-image-model-config-grid m-t-1">
-                <label class="st-chatgpt2api-image-model-config-field">
-                    <span>提示词模型</span>
-                    <input id="st_chatgpt2api_image_quick_prompt_api_model" class="text_pole wide100p" type="text" placeholder="gcli-gemini-3-flash-preview" />
-                </label>
-                <label class="st-chatgpt2api-image-model-config-field">
-                    <span>普通生图模型</span>
-                    <input id="st_chatgpt2api_image_quick_image_model" class="text_pole wide100p" type="text" placeholder="gpt-image-2" />
-                </label>
-                <label class="st-chatgpt2api-image-model-config-field">
-                    <span>Grok 生图模型</span>
-                    <input id="st_chatgpt2api_image_quick_grok_model" class="text_pole wide100p" type="text" placeholder="grok-4.1-fast-image" />
-                </label>
+                <div class="st-chatgpt2api-image-model-config-group">
+                    <div class="st-chatgpt2api-image-model-config-group-title">提示词接口</div>
+                    <label class="st-chatgpt2api-image-model-config-field">
+                        <span>地址 / 端口</span>
+                        <input id="st_chatgpt2api_image_quick_prompt_api_url" class="text_pole wide100p" type="text" placeholder="https://your-api.example.com/v1" />
+                    </label>
+                    <label class="st-chatgpt2api-image-model-config-field">
+                        <span>密钥</span>
+                        <input id="st_chatgpt2api_image_quick_prompt_api_key" class="text_pole wide100p" type="password" placeholder="可选" autocomplete="off" />
+                    </label>
+                    <label class="st-chatgpt2api-image-model-config-field">
+                        <span>模型</span>
+                        <input id="st_chatgpt2api_image_quick_prompt_api_model" class="text_pole wide100p" type="text" placeholder="gcli-gemini-3-flash-preview" />
+                    </label>
+                </div>
+
+                <div class="st-chatgpt2api-image-model-config-group">
+                    <div class="st-chatgpt2api-image-model-config-group-title">普通生图接口</div>
+                    <label class="st-chatgpt2api-image-model-config-field">
+                        <span>地址 / 端口</span>
+                        <input id="st_chatgpt2api_image_quick_image_api_url" class="text_pole wide100p" type="text" placeholder="https://your-image-api.example.com/v1" />
+                    </label>
+                    <label class="st-chatgpt2api-image-model-config-field">
+                        <span>密钥</span>
+                        <input id="st_chatgpt2api_image_quick_image_api_key" class="text_pole wide100p" type="password" placeholder="Bearer Token" autocomplete="off" />
+                    </label>
+                    <label class="st-chatgpt2api-image-model-config-field">
+                        <span>模型</span>
+                        <input id="st_chatgpt2api_image_quick_image_model" class="text_pole wide100p" type="text" placeholder="gpt-image-2" />
+                    </label>
+                </div>
+
+                <div class="st-chatgpt2api-image-model-config-group">
+                    <div class="st-chatgpt2api-image-model-config-group-title">Grok 生图接口</div>
+                    <label class="st-chatgpt2api-image-model-config-field">
+                        <span>地址 / 端口</span>
+                        <input id="st_chatgpt2api_image_quick_grok_api_url" class="text_pole wide100p" type="text" placeholder="https://your-grok2api.example.com/v1" />
+                    </label>
+                    <label class="st-chatgpt2api-image-model-config-field">
+                        <span>密钥</span>
+                        <input id="st_chatgpt2api_image_quick_grok_api_key" class="text_pole wide100p" type="password" placeholder="Bearer Token" autocomplete="off" />
+                    </label>
+                    <label class="st-chatgpt2api-image-model-config-field">
+                        <span>模型</span>
+                        <input id="st_chatgpt2api_image_quick_grok_model" class="text_pole wide100p" type="text" placeholder="grok-4.1-fast-image" />
+                    </label>
+                </div>
             </div>
             <div class="flex-container gap5px flexWrap m-t-1">
                 <div id="st_chatgpt2api_image_quick_fetch_prompt_models" class="menu_button menu_button_icon">

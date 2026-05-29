@@ -6097,8 +6097,14 @@ function attachSettingsContentToControlPanel() {
 }
 
 function syncQuickModelConfigUi(settings = ensureSettings()) {
+    $('#st_chatgpt2api_image_quick_prompt_api_url').val(settings.prompt_api_url || '');
+    $('#st_chatgpt2api_image_quick_prompt_api_key').val(settings.prompt_api_key || '');
     $('#st_chatgpt2api_image_quick_prompt_api_model').val(settings.prompt_api_model || '');
+    $('#st_chatgpt2api_image_quick_image_api_url').val(settings.image_api_url || '');
+    $('#st_chatgpt2api_image_quick_image_api_key').val(settings.image_api_key || '');
     $('#st_chatgpt2api_image_quick_image_model').val(settings.image_model || '');
+    $('#st_chatgpt2api_image_quick_grok_api_url').val(settings.grok_api_url || '');
+    $('#st_chatgpt2api_image_quick_grok_api_key').val(settings.grok_api_key || '');
     $('#st_chatgpt2api_image_quick_grok_model').val(settings.grok_model || '');
     $('#st_chatgpt2api_image_quick_provider_badge').text(`当前：${isGrokImageProvider(settings) ? 'Grok' : '普通'}`);
 }
@@ -8232,6 +8238,50 @@ async function addSettingsUi() {
     $(document).on('click', '#st_chatgpt2api_image_quick_fetch_prompt_models', onFetchPromptModelsClick);
     $(document).on('click', '#st_chatgpt2api_image_quick_test_image_api', onTestApiClick);
 
+    $(document).on('input change', '#st_chatgpt2api_image_quick_prompt_api_url', function () {
+        const value = String($(this).val() || '');
+        ensureSettings().prompt_api_url = value;
+        $('#st_chatgpt2api_image_prompt_api_url').val(value);
+        updateConnectionModeUi();
+        saveSettingsDebounced();
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_quick_prompt_api_key', function () {
+        const value = String($(this).val() || '');
+        ensureSettings().prompt_api_key = value;
+        $('#st_chatgpt2api_image_prompt_api_key').val(value);
+        updateConnectionModeUi();
+        saveSettingsDebounced();
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_quick_image_api_url', function () {
+        const value = String($(this).val() || '');
+        ensureSettings().image_api_url = value;
+        $('#st_chatgpt2api_image_api_url').val(value);
+        saveSettingsDebounced();
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_quick_image_api_key', function () {
+        const value = String($(this).val() || '');
+        ensureSettings().image_api_key = value;
+        $('#st_chatgpt2api_image_api_key').val(value);
+        saveSettingsDebounced();
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_quick_grok_api_url', function () {
+        const value = String($(this).val() || '');
+        ensureSettings().grok_api_url = value;
+        $('#st_chatgpt2api_image_grok_api_url').val(value);
+        saveSettingsDebounced();
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_quick_grok_api_key', function () {
+        const value = String($(this).val() || '');
+        ensureSettings().grok_api_key = value;
+        $('#st_chatgpt2api_image_grok_api_key').val(value);
+        saveSettingsDebounced();
+    });
+
     $(document).on('change', '#st_chatgpt2api_image_grok_include_reference', function () {
         ensureSettings().grok_chat_include_reference = !!$(this).prop('checked');
         saveSettingsDebounced();
@@ -8293,6 +8343,30 @@ async function addSettingsUi() {
 
     $(document).on('input change', '#st_chatgpt2api_image_grok_model', function () {
         $('#st_chatgpt2api_image_quick_grok_model').val(String($(this).val() || ''));
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_prompt_api_url', function () {
+        $('#st_chatgpt2api_image_quick_prompt_api_url').val(String($(this).val() || ''));
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_prompt_api_key', function () {
+        $('#st_chatgpt2api_image_quick_prompt_api_key').val(String($(this).val() || ''));
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_api_url', function () {
+        $('#st_chatgpt2api_image_quick_image_api_url').val(String($(this).val() || ''));
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_api_key', function () {
+        $('#st_chatgpt2api_image_quick_image_api_key').val(String($(this).val() || ''));
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_grok_api_url', function () {
+        $('#st_chatgpt2api_image_quick_grok_api_url').val(String($(this).val() || ''));
+    });
+
+    $(document).on('input change', '#st_chatgpt2api_image_grok_api_key', function () {
+        $('#st_chatgpt2api_image_quick_grok_api_key').val(String($(this).val() || ''));
     });
 
     $(document).on(
