@@ -1321,8 +1321,95 @@ function sanitizeGeneratedPrompt(prompt, settings = ensureSettings()) {
 
     sanitized = normalizeWhitespace(sanitized);
 
-    if (removedSensitiveTerm && !/non-explicit|tasteful|implied intimacy/i.test(sanitized)) {
-        sanitized = normalizeWhitespace(`${sanitized}, tasteful, non-explicit, implied intimacy, cinematic composition`);
+    if (removedSensitiveTerm && !/non-sexual|fully clothed|cinematic/i.test(sanitized)) {
+        sanitized = normalizeWhitespace(`${sanitized}, safe cinematic composition, fully clothed, emotional tension`);
+    }
+
+    return sanitizePromptCapabilityHints(sanitized);
+}
+
+function normalizeAdultSubjectType(subjectType) {
+    const normalized = String(subjectType || '').trim().toLowerCase();
+    if (normalized === 'woman' || normalized === 'female' || normalized === 'girl') {
+        return 'adult woman';
+    }
+    if (normalized === 'man' || normalized === 'male' || normalized === 'boy') {
+        return 'adult man';
+    }
+    return 'adult person';
+}
+
+function sanitizeChatGpt2ApiImagePrompt(prompt, settings = ensureSettings()) {
+    let sanitized = sanitizeGeneratedPrompt(prompt, settings);
+    if (!sanitized || !shouldUseChatGpt2ApiPromptSafetyNormalization(settings)) {
+        return sanitized;
+    }
+
+    let normalizedAge = false;
+    let normalizedIntimacy = false;
+    const replaceAge = (value, replacement) => {
+        const updated = sanitized.replace(value, replacement);
+        if (updated !== sanitized) {
+            normalizedAge = true;
+            sanitized = updated;
+        }
+    };
+    const replaceIntimacy = (value, replacement) => {
+        const updated = sanitized.replace(value, replacement);
+        if (updated !== sanitized) {
+            normalizedIntimacy = true;
+            sanitized = updated;
+        }
+    };
+
+    replaceAge(/\b(?:young\s+adult|young)\s+(woman|man|person|female|male|girl|boy)\b/gi, (_, type) => normalizeAdultSubjectType(type));
+    replaceAge(/\b1\s*girl\b/gi, '1 adult woman');
+    replaceAge(/\b1\s*boy\b/gi, '1 adult man');
+    replaceAge(/\bgirls\b/gi, 'adult women');
+    replaceAge(/\bboys\b/gi, 'adult men');
+    replaceAge(/\bgirl\b/gi, 'adult woman');
+    replaceAge(/\bboy\b/gi, 'adult man');
+    replaceAge(/\byouth(?:ful)?\b/gi, 'adult person');
+    replaceAge(/\bteen(?:ager)?s?\b/gi, 'adult person');
+    replaceAge(/\b(?:apparent age|appears? aged?|looks? aged?|age of|aged)\s*(?:of\s*)?(?:17\s*[-–]\s*18|18\s*[-–]\s*19|1[0-8])\b/gi, 'clearly adult appearance');
+    replaceAge(/\b(?:17\s*[-–]\s*18|18\s*[-–]\s*19|under\s*18|minor)\b/gi, 'clearly adult');
+    replaceAge(/纯真少女气息|少女气息|少年特有的青涩感|青涩感|青涩/g, 'mature adult presence');
+    replaceAge(/婴儿肥/g, 'soft rounded facial features');
+    replaceAge(/少女/g, 'adult woman');
+    replaceAge(/少年/g, 'adult man');
+    replaceAge(/幼态|未成年|萝莉|正太/g, 'clearly adult person');
+    replaceAge(/学生|校园/g, 'adult everyday setting');
+
+    replaceIntimacy(/\bsexually explicit\b/gi, 'non-sexual');
+    replaceIntimacy(/\bsexualized\b/gi, 'non-sexual');
+    replaceIntimacy(/\bsexual\b/gi, 'non-sexual');
+    replaceIntimacy(/\berotic\b/gi, 'romantic');
+    replaceIntimacy(/\bintimate(?:\s+(?:moment|scene|context|pose|interaction))?\b/gi, 'emotional close moment');
+    replaceIntimacy(/\bintimacy\b/gi, 'emotional closeness');
+    replaceIntimacy(/\bsensual\b/gi, 'romantic');
+    replaceIntimacy(/\bafter passion\b/gi, 'after an emotional conversation');
+    replaceIntimacy(/\bpost-intimacy glow\b/gi, 'soft emotional atmosphere');
+    replaceIntimacy(/\bflushed\b/gi, 'emotional');
+    replaceIntimacy(/\barched back\b/gi, 'relaxed posture');
+    replaceIntimacy(/\bskirt lowered\b/gi, 'neat skirt');
+    replaceIntimacy(/\bunbuttoned\b/gi, 'softly draped');
+    replaceIntimacy(/\bdisheveled\b/gi, 'softly rumpled');
+    replaceIntimacy(/\bhands? firmly gripping (?:her|his) waist\b/gi, 'hands resting gently nearby');
+    replaceIntimacy(/\bkneeling on (?:a )?bed\b/gi, 'seated at the edge of a bed');
+    replaceIntimacy(/\bkneels on the edge of the bed,?\s+leaning over\b/gi, 'sits at the edge of the bed, facing');
+    replaceIntimacy(/\b(?:lies|lying) on (?:her|his) back\b/gi, 'sits upright');
+    replaceIntimacy(/\b(?:lies|lying) on (?:a|the) bed\b/gi, 'sits on the bed');
+    replaceIntimacy(/\bsitting on (?:a )?(?:man|woman)'s lap\b/gi, 'sitting beside an adult person');
+    replaceIntimacy(/\bon (?:his|her) lap\b/gi, 'beside them');
+
+    sanitized = normalizeWhitespace(sanitized);
+
+    if (normalizedAge && !/clearly adult|adult character/i.test(sanitized)) {
+        sanitized = normalizeWhitespace(`${sanitized}, clearly adult characters`);
+    }
+
+    if (normalizedIntimacy && !/non-sexual|fully clothed/i.test(sanitized)) {
+        sanitized = normalizeWhitespace(`${sanitized}, non-sexual emotional scene, fully clothed, respectful composition`);
     }
 
     return sanitizePromptCapabilityHints(sanitized);
@@ -5742,24 +5829,29 @@ async function requestImageViaGrokChatCompletions(prompt, sourceMessage, setting
 
 async function requestImage(prompt, sourceMessage = null) {
     const settings = ensureSettings();
+    const finalPrompt = shouldUseChatGpt2ApiPromptSafetyNormalization(settings)
+        ? sanitizeChatGpt2ApiImagePrompt(prompt, settings)
+        : prompt;
 
     if (isGrokImageProvider(settings)) {
-        return await requestImageViaGrokChatCompletions(prompt, sourceMessage, settings);
+        return await requestImageViaGrokChatCompletions(finalPrompt, sourceMessage, settings);
     }
 
-    return await requestImageViaImagesApi(prompt, settings);
+    return await requestImageViaImagesApi(finalPrompt, settings);
 }
 
 function buildImageRetryPrompt(prompt, settings = ensureSettings()) {
     let safePrompt = sanitizeSourceForPromptApi(prompt, settings);
-    safePrompt = sanitizeGeneratedPrompt(safePrompt, settings);
+    safePrompt = shouldUseChatGpt2ApiPromptSafetyNormalization(settings)
+        ? sanitizeChatGpt2ApiImagePrompt(safePrompt, settings)
+        : sanitizeGeneratedPrompt(safePrompt, settings);
 
     if (!safePrompt) {
         return '';
     }
 
-    if (!/tasteful|non-explicit|implied intimacy|cinematic/i.test(safePrompt)) {
-        safePrompt = normalizeWhitespace(`${safePrompt}, tasteful, non-explicit, implied intimacy, cinematic lighting, emotional tension`);
+    if (!/non-sexual|fully clothed|cinematic/i.test(safePrompt)) {
+        safePrompt = normalizeWhitespace(`${safePrompt}, non-sexual, fully clothed, cinematic lighting, emotional tension`);
     }
 
     return safePrompt;

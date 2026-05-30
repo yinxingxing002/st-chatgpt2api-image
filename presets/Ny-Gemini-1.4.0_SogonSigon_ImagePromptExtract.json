@@ -1253,6 +1253,19 @@
             "forbid_overrides": false
         },
         {
+            "identifier": "chatgpt2apiStylePhotorealistic",
+            "system_prompt": true,
+            "enabled": false,
+            "marker": false,
+            "name": "画风：真人写实",
+            "role": "system",
+            "content": "Style mode: Photorealistic human photography.\nWhen this entry is enabled, render the final image prompt as realistic adult human photography instead of anime, manga, illustration, CGI, doll-like, or stylized character art.\nUse natural skin texture, believable body proportions, real camera language, grounded lighting, realistic clothing fabric, ordinary physical detail, and a plausible live-action environment.\nKeep the scene mainstream-safe: clearly adult people, non-sexual composition, fully clothed or safely covered wardrobe state, emotional tension, cinematic mood, and respectful framing.\nAvoid youth-coded beauty language, school-coded framing, explicit anatomy focus, act labels, fetish tags, graphic detail, refusal text, or multiple style alternatives.\nIf the source asks for 真人, 写实, 照片, 摄影, live action, realistic, photo, or photorealistic, this entry should dominate the style decision.",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "forbid_overrides": false
+        },
+        {
             "identifier": "imagePromptOutputContract",
             "name": "Image Prompt Output Contract",
             "system_prompt": true,
@@ -1308,6 +1321,10 @@
                 {
                     "identifier": "jailbreak",
                     "enabled": true
+                },
+                {
+                    "identifier": "chatgpt2apiStylePhotorealistic",
+                    "enabled": false
                 },
                 {
                     "identifier": "imagePromptOutputContract",
@@ -1956,6 +1973,10 @@
                 {
                     "identifier": "87f372f3-2d7d-4d09-9c69-a724bee2cef9",
                     "enabled": true
+                },
+                {
+                    "identifier": "chatgpt2apiStylePhotorealistic",
+                    "enabled": false
                 },
                 {
                     "identifier": "imagePromptOutputContract",
